@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Hub: Orchestrator & Usage Monitor</title>
+<style>
+:root {
+  --bg: #f6f5f2;
+  --card: #ffffff;
+  --text: #1d1d1b;
+  --muted: #77756f;
+  --line: #e6e3dc;
+  --warn: #e0a100;
+  --danger: #d93f3f;
+  --claude: #d97757;
+  --chatgpt: #10a37f;
+  --gemini: #4a7dff;
+  --code-bg: #f0eee9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --card: #212120;
+    --text: #f1efe9;
+    --muted: #9a978f;
+    --line: #33322f;
+    --code-bg: #2b2b28;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 60px; }
+
+/* Top Nav / Tabs */
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+.logo-title { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; margin: 0; }
+.nav-tabs { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
+.tab-btn {
+  background: transparent; border: none; outline: none; padding: 8px 18px; border-radius: 8px; font-size: 14px;
+  font-weight: 600; color: var(--muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+/* Common status & indicator */
+.sub { color: var(--muted); font-size: 13px; display: flex; align-items: center; }
+.live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #aaa; margin-right: 6px; }
+.live.on { background: #2fb344; animation: p 2s infinite; }
+@keyframes p { 50% { opacity: 0.35; } }
+
+/* Tab content switching */
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ==================== TAB 1: CHAT / ORCHESTRATOR ==================== */
+.chat-quota-pills { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.quota-pill {
+  background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 4px 12px;
+  font-size: 12px; display: flex; align-items: center; gap: 6px;
+}
+.quota-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+.orchestrator-box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 22px; }
+.providers-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+.provider-toggles { display: flex; gap: 14px; flex-wrap: wrap; }
+.toggle-label {
+  display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); transition: 0.2s;
+}
+.toggle-label input { cursor: pointer; accent-color: var(--c); }
+.mode-badge { font-size: 12px; color: var(--muted); background: var(--bg); padding: 4px 10px; border-radius: 99px; }
+
+.prompt-area {
+  width: 100%; min-height: 110px; max-height: 350px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 14px; color: var(--text); resize: vertical;
+  outline: none; transition: border-color 0.2s;
+}
+.prompt-area:focus { border-color: var(--gemini); }
+
+.box-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 10px; flex-wrap: wrap; }
+.shortcut-hint { font-size: 12px; color: var(--muted); }
+.btn-group { display: flex; gap: 8px; }
+button.btn {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; font: inherit; font-size: 14px;
+  font-weight: 600; cursor: pointer; transition: 0.2s; background: var(--bg); color: var(--text);
+}
+button.btn:hover { background: var(--line); }
+button.btn-primary { background: #1d1d1b; color: #fff; border-color: #1d1d1b; }
+@media (prefers-color-scheme: dark) { button.btn-primary { background: #f1efe9; color: #161615; border-color: #f1efe9; } }
+button.btn-primary:hover { opacity: 0.9; }
+button.btn-danger { color: var(--danger); border-color: var(--danger); }
+button.btn-danger:hover { background: var(--danger); color: #fff; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Arena 3-Columns Grid */
+.arena-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.response-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; display: flex;
+  flex-direction: column; overflow: hidden; min-height: 350px;
+}
+.res-header {
+  padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between;
+  align-items: center; background: rgba(0,0,0,0.01);
+}
+.res-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.res-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+}
+.res-badge.running { background: rgba(74, 125, 255, 0.15); color: var(--gemini); border-color: var(--gemini); }
+.res-badge.done { background: rgba(47, 179, 68, 0.15); color: #2fb344; border-color: #2fb344; }
+.res-badge.err { background: rgba(217, 63, 63, 0.15); color: var(--danger); border-color: var(--danger); }
+
+.res-body {
+  padding: 16px; flex: 1; overflow-y: auto; max-height: 520px; font-size: 14px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; font-family: inherit;
+}
+.res-body.empty { color: var(--muted); font-style: italic; display: flex; align-items: center; justify-content: center; }
+
+/* Formatted markdown-like styles inside response */
+.res-body pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto; font-family: monospace; font-size: 13px; }
+.res-body code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+.res-body pre code { background: transparent; padding: 0; }
+
+.res-footer {
+  padding: 8px 16px; border-top: 1px solid var(--line); display: flex; justify-content: space-between;
+  align-items: center; font-size: 12px; color: var(--muted); background: var(--bg);
+}
+.res-footer button {
+  background: transparent; border: none; color: var(--text); cursor: pointer; font-size: 12px;
+  font-weight: 600; padding: 4px 6px; border-radius: 4px;
+}
+.res-footer button:hover { background: var(--line); }
+
+/* ==================== TAB 2: USAGE METER ==================== */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.big { font-size: 30px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.big small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.win { margin-top: 14px; }
+.wh { display: flex; justify-content: space-between; font-size: 13px; }
+.wh span:first-child { font-weight: 600; }
+.bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 5px 0; }
+.bar i { display: block; height: 100%; background: var(--c); border-radius: 99px; transition: width 0.4s; }
+.bar i.warn { background: var(--warn); }
+.bar i.danger { background: var(--danger); }
+.wf { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.wf a { color: var(--c); cursor: pointer; text-decoration: underline; }
+.row { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: 4px; }
+.row b { color: var(--text); font-weight: 600; }
+.hist { display: flex; align-items: flex-end; gap: 5px; height: 48px; margin-top: 16px; }
+.hist div { flex: 1; background: var(--c); opacity: 0.35; border-radius: 3px 3px 0 0; min-height: 2px; }
+.hist div:last-child { opacity: 1; }
+.hl { display: flex; gap: 5px; color: var(--muted); font-size: 10px; margin-top: 3px; }
+.hl span { flex: 1; text-align: center; }
+.err { margin-top: 12px; color: var(--muted); font-size: 12px; word-break: break-word; }
+.note { margin-top: 20px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo-title">
+      <span>⚡ AI Hub</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" id="tab-btn-chat" onclick="switchTab('chat')">💬 สั่งงาน (Chat)</button>
+      <button class="tab-btn" id="tab-btn-usage" onclick="switchTab('usage')">📊 Usage Meter</button>
+    </div>
+    <span class="sub"><span class="live" id="live"></span><span id="upd">กำลังเชื่อมต่อ…</span></span>
+  </header>
+
+  <!-- PANE 1: CHAT ORCHESTRATOR -->
+  <div class="tab-pane active" id="pane-chat">
+    <!-- Quick Quota Pills -->
+    <div class="chat-quota-pills" id="quick-quota-pills">
+      <div class="quota-pill" style="--c:var(--claude)"><span class="dot" style="background:var(--claude)"></span><b>Claude:</b> <span id="pill-claude">กำลังโหลด...</span></div>
+      <div class="quota-pill" style="--c:var(--chatgpt)"><span class="dot" style="background:var(--chatgpt)"></span><b>ChatGPT:</b> <span id="pill-chatgpt">กำลังโหลด...</span></div>
+      <div class="quota-pill" style="--c:var(--gemini)"><span class="dot" style="background:var(--gemini)"></span><b>Gemini:</b> <span id="pill-gemini">กำลังโหลด...</span></div>
+    </div>
+
+    <!-- Orchestrator Input Box -->
+    <div class="orchestrator-box">
+      <div class="providers-bar">
+        <div class="provider-toggles">
+          <label class="toggle-label" style="--c:var(--claude)">
+            <input type="checkbox" id="check-claude" checked> 🟧 Claude (Pro)
+          </label>
+          <label class="toggle-label" style="--c:var(--chatgpt)">
+            <input type="checkbox" id="check-chatgpt" checked> 🟩 ChatGPT (Codex Plus)
+          </label>
+          <label class="toggle-label" style="--c:var(--gemini)">
+            <input type="checkbox" id="check-gemini" checked> 🟦 Gemini (Antigravity)
+          </label>
+        </div>
+        <div class="mode-badge">⚡ โหมด: Parallel Arena (ส่งวิเคราะห์พร้อมกัน)</div>
+      </div>
+
+      <textarea id="prompt-input" class="prompt-area" placeholder="พิมพ์ Requirement, คำสั่ง หรือโค้ดที่ต้องการให้ AI ช่วยทำงาน..."></textarea>
+
+      <div class="box-actions">
+        <div class="shortcut-hint">กด <b>Ctrl + Enter</b> เพื่อส่งคำสั่งด่วน</div>
+        <div class="btn-group">
+          <button class="btn" id="btn-clear" onclick="clearPrompt()">ล้างข้อความ</button>
+          <button class="btn btn-danger" id="btn-stop" onclick="stopExecution()" style="display:none">⏹ ยกเลิก</button>
+          <button class="btn btn-primary" id="btn-send" onclick="sendPrompt()">🚀 สั่งงานพร้อมกัน</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Arena Grid -->
+    <div class="arena-grid">
+      <!-- Claude Column -->
+      <div class="response-card" id="card-claude" style="--c:var(--claude)">
+        <div class="res-header">
+          <div class="res-title"><span class="dot" style="background:var(--claude)"></span> Claude Code</div>
+          <span class="res-badge" id="badge-claude">พร้อมทำงาน</span>
+        </div>
+        <div class="res-body empty" id="body-claude">รอสั่งงาน...</div>
+        <div class="res-footer">
+          <span id="timer-claude">0.0s</span>
+          <button onclick="copyResponse('claude')">📋 คัดลอก</button>
+        </div>
+      </div>
+
+      <!-- ChatGPT Column -->
+      <div class="response-card" id="card-chatgpt" style="--c:var(--chatgpt)">
+        <div class="res-header">
+          <div class="res-title"><span class="dot" style="background:var(--chatgpt)"></span> ChatGPT (Codex)</div>
+          <span class="res-badge" id="badge-chatgpt">พร้อมทำงาน</span>
+        </div>
+        <div class="res-body empty" id="body-chatgpt">รอสั่งงาน...</div>
+        <div class="res-footer">
+          <span id="timer-chatgpt">0.0s</span>
+          <button onclick="copyResponse('chatgpt')">📋 คัดลอก</button>
+        </div>
+      </div>
+
+      <!-- Gemini Column -->
+      <div class="response-card" id="card-gemini" style="--c:var(--gemini)">
+        <div class="res-header">
+          <div class="res-title"><span class="dot" style="background:var(--gemini)"></span> Gemini (Antigravity)</div>
+          <span class="res-badge" id="badge-gemini">พร้อมทำงาน</span>
+        </div>
+        <div class="res-body empty" id="body-gemini">รอสั่งงาน...</div>
+        <div class="res-footer">
+          <span id="timer-gemini">0.0s</span>
+          <button onclick="copyResponse('gemini')">📋 คัดลอก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANE 2: USAGE METER -->
+  <div class="tab-pane" id="pane-usage">
+    <div class="grid" id="grid"></div>
+    <p class="note">อัปเดตแบบ realtime · "จากแพ็กเกจจริง" คือค่าจากบัญชีโดยตรง ส่วนช่องที่ไม่มีค่านี้จะนับจาก log ในเครื่องและต้องกด "ตั้ง limit" เอง · วันที่ในกราฟเป็น UTC</p>
+  </div>
+</main>
+
+<script>
+const BASE = location.protocol === 'file:' ? 'http://localhost:3939' : '';
+const META = {
+  claude:  { label: 'Claude',  color: 'var(--claude)' },
+  chatgpt: { label: 'ChatGPT', color: 'var(--chatgpt)' },
+  gemini:  { label: 'Gemini',  color: 'var(--gemini)' },
+};
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById(`tab-btn-${tab}`).classList.add('active');
+  document.getElementById(`pane-${tab}`).classList.add('active');
+}
+
+/* ==================== USAGE METER LOGIC ==================== */
+const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n));
+const sum = (days, f) => days.reduce((a, d) => a + d[f], 0);
+const cls = pct => pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '';
+let data = null;
+
+function dur(ms) {
+  if (!ms || ms <= 0) return '—';
+  const m = Math.ceil(ms / 60000), h = Math.floor(m / 60);
+  if (h >= 24) return Math.floor(h / 24) + ' วัน ' + (h % 24) + ' ชม.';
+  return h ? `${h} ชม. ${m % 60} น.` : `${m} น.`;
+}
+
+function bar(pct) { return `<div class="bar"><i class="${cls(pct)}" style="width:${pct}%"></i></div>`; }
+
+function winHtml(k, w, noTokens) {
+  const u = noTokens ? 'เซสชัน' : 'tokens';
+  const reset = w.resetsAt ? `รีเซ็ตใน ${dur(w.resetsAt - Date.now())}` : 'ยังไม่ได้ใช้';
+  if (!w.limit) return `<div class="win"><div class="wh"><span>${w.label}</span><span>ใช้ไป ${fmt(w.used)} ${u}</span></div>${bar(0)}
+    <div class="wf"><span>${reset}</span><a data-set="${k}:${w.key}">ตั้ง limit เพื่อดูที่เหลือ</a></div></div>`;
+  return `<div class="win"><div class="wh"><span>${w.label}</span><span>เหลือ ${(100 - w.pct).toFixed(0)}%</span></div>${bar(w.pct)}
+    <div class="wf"><span>ใช้ไป ${w.pct.toFixed(0)}% (${fmt(w.used)} / ${fmt(w.limit)}) · ${reset}</span><a data-set="${k}:${w.key}">แก้ limit</a></div></div>`;
+}
+
+function realHtml(l) {
+  const left = Math.max(0, 100 - l.pct);
+  return `<div class="win"><div class="wh"><span>${l.label} (จากแพ็กเกจจริง)</span><span>เหลือ ${left.toFixed(0)}%</span></div>${bar(l.pct)}
+    <div class="wf"><span>ใช้ไป ${l.pct.toFixed(0)}%</span><span>รีเซ็ตใน ${dur(l.resetsAt - Date.now())}</span></div></div>`;
+}
+
+function card(k, p) {
+  const m = META[k];
+  const head = `<div class="name"><span class="dot"></span>${m.label}</div>`;
+  if (!p || !p.ok) return `<div class="card" style="--c:${m.color}">${head}<div class="err">${p ? p.error : 'กำลังโหลด…'}</div></div>`;
+  const f = p.noTokens ? 'requests' : 'tokens';
+  const today = p.days[p.days.length - 1];
+  const max = Math.max(1, ...p.days.map(d => d[f]));
+  const costRow = p.days.some(d => d.cost) ? `<div class="row"><span>ค่าใช้จ่าย 7 วัน</span><b>$${sum(p.days, 'cost').toFixed(2)}</b></div>` : '';
+  return `<div class="card" style="--c:${m.color}">${head}
+    ${(p.realLimits || [])[0]
+      ? `<div class="big">${(100 - p.realLimits[0].pct).toFixed(0)}% <small>เหลือ (${p.realLimits[0].label})</small></div>
+         <div class="row"><span>วันนี้ใช้ไป</span><b>${fmt(today[f])} ${p.noTokens ? 'เซสชัน' : 'tokens'}</b></div>`
+      : `<div class="big">${fmt(today[f])} <small>${p.noTokens ? 'เซสชัน' : 'tokens'} วันนี้</small></div>`}
+    ${(p.windows || []).map(w => winHtml(k, w, p.noTokens)).join('')}
+    ${(p.realLimits || []).map(realHtml).join('')}
+    <div class="row"><span>7 วัน</span><b>${fmt(sum(p.days, f))}</b></div>${costRow}
+    <div class="hist">${p.days.map(d => `<div title="${d.date}: ${fmt(d[f])}" style="height:${d[f] / max * 100}%"></div>`).join('')}</div>
+    <div class="hl">${p.days.map(d => `<span>${d.date.slice(8)}</span>`).join('')}</div>
+    ${p.source ? `<div class="err">แหล่งข้อมูล: ${p.source}</div>` : ''}</div>`;
+}
+
+function updateQuickPills() {
+  if (!data) return;
+  for (const k of ['claude', 'chatgpt', 'gemini']) {
+    const p = data[k];
+    const el = document.getElementById(`pill-${k}`);
+    if (!el) continue;
+    if (p && p.realLimits && p.realLimits.length > 0) {
+      const first = p.realLimits[0];
+      const left = Math.max(0, 100 - first.pct).toFixed(0);
+      el.textContent = `เหลือ ${left}% (${first.label})`;
+    } else if (p && p.windows && p.windows.length > 0 && p.windows[0].limit) {
+      const left = Math.max(0, 100 - p.windows[0].pct).toFixed(0);
+      el.textContent = `เหลือ ${left}%`;
+    } else {
+      el.textContent = 'พร้อมใช้งาน';
+    }
+  }
+}
+
+function render() {
+  if (!data) return;
+  document.getElementById('grid').innerHTML = Object.keys(META).map(k => card(k, data[k])).join('');
+  document.getElementById('upd').textContent = 'realtime · อัปเดต ' + new Date(data.updated).toLocaleTimeString('th-TH');
+  updateQuickPills();
+}
+
+document.getElementById('grid').addEventListener('click', async e => {
+  const a = e.target.closest('[data-set]'); if (!a) return;
+  const [provider, window_] = a.dataset.set.split(':');
+  const v = prompt(`ตั้ง limit ของ ${META[provider].label} (${window_ === 'h5' ? '5 ชม.' : 'สัปดาห์'}) เป็นหน่วย ${data[provider].noTokens ? 'เซสชัน' : 'tokens'} — เว้นว่างเพื่อลบ`);
+  if (v === null) return;
+  await fetch(BASE + '/api/config', { method: 'POST', body: JSON.stringify({ provider, window: window_, limit: v.replace(/[,_\s]/g, '') }) });
+});
+
+let es;
+function connect() {
+  es = new EventSource(BASE + '/api/stream');
+  es.onopen = () => document.getElementById('live').classList.add('on');
+  es.onmessage = ev => { data = JSON.parse(ev.data); render(); };
+  es.onerror = () => { document.getElementById('live').classList.remove('on'); document.getElementById('upd').textContent = 'เชื่อมต่อ server ไม่ได้ — รัน node server.js'; };
+}
+connect();
+setInterval(render, 30000);
+
+/* ==================== ORCHESTRATOR / CHAT LOGIC ==================== */
+let abortController = null;
+let timers = {};
+let responsesText = { claude: '', chatgpt: '', gemini: '' };
+
+function formatMarkdown(text) {
+  if (!text) return '';
+  let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  escaped = escaped.replace(/```([\s\S]*?)```/g, (m, code) => `<pre><code>${code.trim()}</code></pre>`);
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  return escaped;
+}
+
+function clearPrompt() {
+  document.getElementById('prompt-input').value = '';
+}
+
+function copyResponse(prov) {
+  const text = responsesText[prov];
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const old = btn.textContent;
+    btn.textContent = '✅ คัดลอกแล้ว';
+    setTimeout(() => btn.textContent = old, 1500);
+  });
+}
+
+function stopExecution() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  finishAll('ยกเลิกแล้ว');
+}
+
+function finishAll(statusText) {
+  document.getElementById('btn-send').style.display = 'inline-block';
+  document.getElementById('btn-stop').style.display = 'none';
+  for (const k of ['claude', 'chatgpt', 'gemini']) {
+    if (timers[k]) { clearInterval(timers[k]); timers[k] = null; }
+    const badge = document.getElementById(`badge-${k}`);
+    if (badge && badge.classList.contains('running')) {
+      badge.textContent = statusText || 'เสร็จสิ้น';
+      badge.className = 'res-badge done';
+    }
+  }
+}
+
+async function sendPrompt() {
+  const promptInput = document.getElementById('prompt-input');
+  const prompt = promptInput.value.trim();
+  if (!prompt) return;
+
+  const providers = [];
+  if (document.getElementById('check-claude').checked) providers.push('claude');
+  if (document.getElementById('check-chatgpt').checked) providers.push('chatgpt');
+  if (document.getElementById('check-gemini').checked) providers.push('gemini');
+
+  if (!providers.length) {
+    alert('กรุณาเลือก AI อย่างน้อย 1 ตัว');
+    return;
+  }
+
+  // UI Setup
+  document.getElementById('btn-send').style.display = 'none';
+  document.getElementById('btn-stop').style.display = 'inline-block';
+
+  // Reset cards
+  for (const k of ['claude', 'chatgpt', 'gemini']) {
+    responsesText[k] = '';
+    const body = document.getElementById(`body-${k}`);
+    const badge = document.getElementById(`badge-${k}`);
+    const timer = document.getElementById(`timer-${k}`);
+    const card = document.getElementById(`card-${k}`);
+
+    if (providers.includes(k)) {
+      card.style.display = 'flex';
+      body.className = 'res-body';
+      body.textContent = 'กำลังประมวลผล...';
+      badge.textContent = 'กำลังคิด... ⏳';
+      badge.className = 'res-badge running';
+      timer.textContent = '0.0s';
+
+      const start = Date.now();
+      if (timers[k]) clearInterval(timers[k]);
+      timers[k] = setInterval(() => {
+        timer.textContent = ((Date.now() - start) / 1000).toFixed(1) + 's';
+      }, 100);
+    } else {
+      card.style.display = 'none';
+      if (timers[k]) clearInterval(timers[k]);
+    }
+  }
+
+  abortController = new AbortController();
+
+  try {
+    const res = await fetch(BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, providers }),
+      signal: abortController.signal
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(block.slice(6));
+          const prov = msg.provider;
+
+          if (msg.type === 'chunk') {
+            responsesText[prov] += msg.text;
+            const body = document.getElementById(`body-${prov}`);
+            body.innerHTML = formatMarkdown(responsesText[prov]);
+            body.scrollTop = body.scrollHeight;
+          } else if (msg.type === 'done') {
+            if (timers[prov]) { clearInterval(timers[prov]); timers[prov] = null; }
+            const badge = document.getElementById(`badge-${prov}`);
+            badge.textContent = 'เสร็จสิ้น ✅';
+            badge.className = 'res-badge done';
+          } else if (msg.type === 'error') {
+            if (timers[prov]) { clearInterval(timers[prov]); timers[prov] = null; }
+            const badge = document.getElementById(`badge-${prov}`);
+            badge.textContent = 'ข้อผิดพลาด ❌';
+            badge.className = 'res-badge err';
+            const body = document.getElementById(`body-${prov}`);
+            body.textContent = 'Error: ' + msg.error;
+          } else if (msg.type === 'all_done') {
+            finishAll('เสร็จสิ้น ✅');
+          }
+        } catch (e) {
+          console.error('Error parsing SSE block:', e);
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
+    }
+    finishAll('หยุดการทำงาน');
+  }
+}
+
+// Shortcut Ctrl+Enter
+document.getElementById('prompt-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    sendPrompt();
+  }
+});
+</script>
+</body>
+</html>

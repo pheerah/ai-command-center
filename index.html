@@ -1,0 +1,2017 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Hub: Squad Orchestrator & Usage Monitor</title>
+<style>
+:root {
+  --bg: #f6f5f2;
+  --card: #ffffff;
+  --text: #1d1d1b;
+  --muted: #77756f;
+  --line: #e6e3dc;
+  --warn: #e0a100;
+  --danger: #d93f3f;
+  --success: #2fb344;
+  --claude: #d97757;
+  --chatgpt: #10a37f;
+  --gemini: #4a7dff;
+  --code-bg: #f0eee9;
+  --hud-bg: #fdfdfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --card: #212120;
+    --text: #f1efe9;
+    --muted: #9a978f;
+    --line: #33322f;
+    --code-bg: #2b2b28;
+    --hud-bg: #1c1c1b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 60px; }
+
+/* Top Header & Navigation */
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+.logo-title { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; margin: 0; }
+.nav-tabs { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
+.tab-btn {
+  background: transparent; border: none; outline: none; padding: 8px 16px; border-radius: 8px; font-size: 13.5px;
+  font-weight: 600; color: var(--muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+
+/* Common status & indicator */
+.sub { color: var(--muted); font-size: 13px; display: flex; align-items: center; }
+.live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #aaa; margin-right: 6px; }
+.live.on { background: var(--success); animation: p 2s infinite; }
+@keyframes p { 50% { opacity: 0.35; } }
+
+/* ANIMATIONS & ICONS */
+.spinner-icon {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.2);
+  border-top-color: currentColor; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.pulse-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--gemini);
+  animation: pulse-glow 1.4s infinite; margin-right: 4px;
+}
+@keyframes pulse-glow {
+  0% { transform: scale(0.9); opacity: 0.4; }
+  50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 8px currentColor; }
+  100% { transform: scale(0.9); opacity: 0.4; }
+}
+
+.typing-cursor {
+  display: inline-block; width: 6px; height: 14px; background: currentColor; margin-left: 2px;
+  vertical-align: middle; animation: blink 0.8s infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Tab Panes */
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* 2-COLUMN WORKSPACE LAYOUT (Left: GUI HUD, Right: Main) */
+.workspace-layout { display: flex; gap: 20px; align-items: flex-start; }
+@media (max-width: 900px) { .workspace-layout { flex-direction: column; } }
+
+.sidebar-hud { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 900px) { .sidebar-hud { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); } }
+.main-workspace { flex: 1; min-width: 0; }
+
+/* GUI METER CARDS */
+.hud-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: -4px;
+}
+.gui-meter-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; position: relative;
+  overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.02); transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.gui-meter-card::before {
+  content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--c);
+}
+.gui-meter-card.active-working {
+  border-color: var(--c); box-shadow: 0 0 14px rgba(74, 125, 255, 0.25);
+  animation: card-pulse 2s infinite ease-in-out;
+}
+@keyframes card-pulse {
+  0% { box-shadow: 0 0 6px rgba(74, 125, 255, 0.15); }
+  50% { box-shadow: 0 0 16px rgba(74, 125, 255, 0.35); }
+  100% { box-shadow: 0 0 6px rgba(74, 125, 255, 0.15); }
+}
+
+.meter-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.meter-name { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.meter-tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.meter-tag.ready { color: var(--success); border-color: var(--success); background: rgba(47, 179, 68, 0.08); }
+.meter-tag.busy { color: var(--gemini); border-color: var(--gemini); background: rgba(74, 125, 255, 0.12); font-weight: 600; }
+.meter-tag.warn { color: var(--warn); border-color: var(--warn); background: rgba(224, 161, 0, 0.08); }
+.meter-tag.danger { color: var(--danger); border-color: var(--danger); background: rgba(217, 63, 63, 0.08); }
+
+/* CIRCULAR DUAL-RING RADIAL GAUGE */
+.radial-gauge-container {
+  display: flex; justify-content: center; align-items: center; margin: 10px 0 12px;
+}
+.radial-gauge-wrapper {
+  position: relative; width: 132px; height: 132px; display: flex; justify-content: center; align-items: center;
+}
+.radial-gauge-svg {
+  width: 100%; height: 100%; transform: rotate(-90deg); /* 12 o'clock start */
+}
+.gauge-track {
+  fill: none; stroke: var(--line); opacity: 0.35;
+}
+.gauge-track.outer { stroke-width: 7; }
+.gauge-track.inner { stroke-width: 7; }
+
+.gauge-fill {
+  fill: none; stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s;
+}
+.gauge-fill.outer {
+  stroke: var(--c); opacity: 0.65; stroke-width: 7;
+  stroke-dasharray: 314.16; stroke-dashoffset: 314.16;
+}
+.gauge-fill.inner {
+  stroke: var(--c); stroke-width: 7;
+  stroke-dasharray: 238.76; stroke-dashoffset: 238.76;
+}
+.gauge-fill.warn { stroke: var(--warn) !important; }
+.gauge-fill.danger { stroke: var(--danger) !important; }
+
+.radial-gauge-center {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; pointer-events: none;
+}
+.radial-gauge-value {
+  font-size: 24px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.radial-gauge-label {
+  font-size: 10.5px; color: var(--muted); margin-top: 2px;
+}
+
+/* Gauge Legend */
+.gauge-legend-list {
+  display: flex; flex-direction: column; gap: 5px; background: var(--bg);
+  padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line);
+}
+.gauge-legend-row {
+  display: flex; align-items: center; font-size: 11.5px; gap: 6px;
+}
+.legend-indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.legend-indicator.inner { background: var(--c); }
+.legend-indicator.outer { background: var(--c); opacity: 0.65; border: 1px dashed var(--text); }
+.legend-title { color: var(--muted); flex: 1; }
+.legend-val { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.gauge-countdown-row {
+  font-size: 11px; color: var(--muted); margin-top: 3px; padding-top: 4px;
+  border-top: 1px dashed var(--line); display: flex; align-items: center; gap: 4px;
+}
+
+/* Main Box Containers */
+.box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+.box-title { font-size: 16px; font-weight: 700; margin: 0 0 14px 0; display: flex; align-items: center; justify-content: space-between; }
+
+/* Project Folder Selector with Browse */
+.project-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.project-input {
+  flex: 1; min-width: 260px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 12px; font: inherit; font-size: 13.5px; color: var(--text); outline: none;
+}
+.project-status { font-size: 12px; color: var(--muted); }
+
+/* Textarea & Buttons */
+.prompt-area {
+  width: 100%; min-height: 100px; max-height: 250px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 14px; color: var(--text); resize: vertical;
+  outline: none; transition: border-color 0.2s; margin-bottom: 12px;
+}
+.prompt-area:focus { border-color: var(--gemini); }
+
+.box-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+button.btn {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 15px; font: inherit; font-size: 13.5px;
+  font-weight: 600; cursor: pointer; transition: 0.2s; background: var(--bg); color: var(--text); display: inline-flex; align-items: center; gap: 6px;
+}
+button.btn:hover { background: var(--line); }
+button.btn-primary { background: #1d1d1b; color: #fff; border-color: #1d1d1b; }
+@media (prefers-color-scheme: dark) { button.btn-primary { background: #f1efe9; color: #161615; border-color: #f1efe9; } }
+button.btn-primary:hover { opacity: 0.9; }
+button.btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Image Attachment Preview Box */
+.image-attach-preview {
+  display: flex; align-items: center; gap: 12px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+  margin-top: 10px; margin-bottom: 12px; animation: fadeIn 0.2s ease;
+  width: fit-content; max-width: 100%;
+}
+.image-attach-preview img {
+  height: 60px; max-width: 120px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line);
+}
+.image-attach-info { display: flex; flex-direction: column; gap: 2px; }
+.image-attach-name {
+  font-size: 13px; font-weight: 600; color: var(--text); max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.image-attach-size { font-size: 11px; color: var(--muted); }
+.btn-remove-img {
+  background: rgba(217, 63, 63, 0.1); color: var(--danger); border: 1px solid rgba(217, 63, 63, 0.2);
+  border-radius: 6px; width: 24px; height: 24px; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: 0.15s; margin-left: 6px;
+}
+.btn-remove-img:hover { background: var(--danger); color: #fff; }
+.prompt-area.dragover { border-color: var(--gemini); background: rgba(74, 125, 255, 0.05); }
+
+/* Plan Stage Banner & Live Brainstorm Radar */
+.stage-banner {
+  padding: 12px 16px; border-radius: 10px; font-size: 13.5px; margin-bottom: 16px; display: none;
+  background: rgba(74, 125, 255, 0.08); border: 1px solid var(--gemini); color: var(--text);
+  align-items: center; justify-content: space-between;
+}
+.stage-banner.done { background: rgba(47, 179, 68, 0.08); border-color: var(--success); }
+
+/* Live AI Squad Activity Cards */
+.squad-live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; display: none; }
+.squad-live-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px; transition: border-color 0.2s;
+}
+.squad-live-card.active { border-color: var(--c); box-shadow: 0 0 10px rgba(74, 125, 255, 0.15); }
+.squad-live-header { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; }
+.squad-live-preview {
+  font-family: monospace; font-size: 12px; color: var(--muted); background: var(--bg); padding: 8px 10px;
+  border-radius: 6px; max-height: 90px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; line-height: 1.4;
+}
+
+/* PM Synthesis & Executive Summary Box */
+.pm-synthesis-box {
+  background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--gemini);
+  border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; display: none;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.04);
+}
+.pm-synthesis-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line);
+}
+.pm-synthesis-title {
+  display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--text);
+}
+.pm-synthesis-content {
+  font-size: 14px; line-height: 1.7; color: var(--text); white-space: pre-wrap; word-break: break-word;
+}
+.pm-decisions-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 10px;
+}
+.pm-decision-item {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+  font-size: 13px; line-height: 1.5; display: flex; align-items: flex-start; gap: 10px; color: var(--text);
+}
+.pm-decision-item .icon { font-size: 15px; line-height: 1.2; }
+
+/* Task List */
+.task-item {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+  margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; transition: all 0.2s;
+}
+.task-item.running {
+  border-color: var(--gemini); box-shadow: 0 0 14px rgba(74, 125, 255, 0.25);
+}
+.task-item.done { opacity: 0.7; border-color: var(--success); }
+.task-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.task-title { font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+.task-desc { font-size: 13.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+.task-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.provider-select {
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+  font: inherit; font-size: 12.5px; color: var(--text); outline: none; cursor: pointer;
+}
+.task-status-pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); color: var(--muted); }
+.task-status-pill.running { background: rgba(74, 125, 255, 0.15); color: var(--gemini); border-color: var(--gemini); font-weight: 600; }
+.task-status-pill.done { background: rgba(47, 179, 68, 0.15); color: var(--success); border-color: var(--success); }
+
+/* Execution Console Output */
+.console-box {
+  background: #141413; color: #ecebe6; border-radius: 12px; padding: 14px; font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px; max-height: 420px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; display: block;
+}
+
+/* Arena Grid (Direct Chat) */
+.arena-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.response-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; display: flex;
+  flex-direction: column; overflow: hidden; min-height: 320px; transition: border-color 0.2s;
+}
+.response-card.running { border-color: var(--c); box-shadow: 0 0 12px rgba(74, 125, 255, 0.15); }
+.res-header {
+  padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between;
+  align-items: center; background: rgba(0,0,0,0.01);
+}
+.res-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.res-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+}
+.res-badge.running { background: rgba(74, 125, 255, 0.15); color: var(--gemini); border-color: var(--gemini); font-weight: 600; }
+.res-badge.done { background: rgba(47, 179, 68, 0.15); color: var(--success); border-color: var(--success); }
+.res-body {
+  padding: 14px; flex: 1; overflow-y: auto; max-height: 480px; font-size: 13.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; font-family: inherit;
+}
+.res-body.empty { color: var(--muted); font-style: italic; display: flex; align-items: center; justify-content: center; }
+.res-footer {
+  padding: 8px 14px; border-top: 1px solid var(--line); display: flex; justify-content: space-between;
+  align-items: center; font-size: 12px; color: var(--muted); background: var(--bg);
+}
+.res-footer button {
+  background: transparent; border: none; color: var(--text); cursor: pointer; font-size: 12px;
+  font-weight: 600; padding: 4px 6px; border-radius: 4px;
+}
+.res-footer button:hover { background: var(--line); }
+
+/* Usage Meter (Tab 3) */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.big { font-size: 30px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.big small { font-size: 13px; color: var(--muted); font-weight: 400; }
+.win { margin-top: 14px; }
+.wh { display: flex; justify-content: space-between; font-size: 13px; }
+.wh span:first-child { font-weight: 600; }
+.bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 5px 0; }
+.bar i { display: block; height: 100%; background: var(--c); border-radius: 99px; transition: width 0.4s; }
+.bar i.warn { background: var(--warn); }
+.bar i.danger { background: var(--danger); }
+.wf { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.wf a { color: var(--c); cursor: pointer; text-decoration: underline; }
+.row { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: 4px; }
+.row b { color: var(--text); font-weight: 600; }
+.hist { display: flex; align-items: flex-end; gap: 5px; height: 48px; margin-top: 16px; }
+.hist div { flex: 1; background: var(--c); opacity: 0.35; border-radius: 3px 3px 0 0; min-height: 2px; }
+.hist div:last-child { opacity: 1; }
+.hl { display: flex; gap: 5px; color: var(--muted); font-size: 10px; margin-top: 3px; }
+.hl span { flex: 1; text-align: center; }
+.err { margin-top: 12px; color: var(--muted); font-size: 12px; word-break: break-word; }
+.note { margin-top: 20px; color: var(--muted); font-size: 12px; }
+
+/* MODAL: FOLDER EXPLORER */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-box {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px; width: 92%; max-width: 640px;
+  max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.modal-header {
+  padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;
+}
+.modal-close-btn {
+  background: transparent; border: none; font-size: 16px; cursor: pointer; color: var(--muted); border-radius: 4px; padding: 4px 8px;
+}
+.modal-close-btn:hover { background: var(--line); color: var(--text); }
+.modal-shortcuts { display: flex; gap: 8px; padding: 10px 18px 0; flex-wrap: wrap; }
+.shortcut-pill {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 20px; padding: 4px 12px; font-size: 12px;
+  cursor: pointer; color: var(--text); transition: 0.15s; font-weight: 500;
+}
+.shortcut-pill:hover { background: var(--line); }
+.shortcut-pill.active {
+  font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.shortcut-pill.active.preset-fast {
+  background: #10b981 !important; color: #ffffff !important; border-color: #059669 !important;
+}
+.shortcut-pill.active.preset-deep {
+  background: #6366f1 !important; color: #ffffff !important; border-color: #4f46e5 !important;
+}
+.shortcut-pill.active.preset-custom {
+  background: var(--gemini) !important; color: #ffffff !important; border-color: var(--gemini) !important;
+}
+.modal-path-bar { display: flex; gap: 6px; padding: 10px 18px; align-items: center; }
+.modal-filter { padding: 0 18px 10px; }
+.modal-filter input {
+  width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px;
+  font: inherit; font-size: 13px; color: var(--text); outline: none;
+}
+.modal-folder-list {
+  flex: 1; overflow-y: auto; padding: 4px 18px 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px; max-height: 320px;
+}
+.folder-card-item {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.15s; user-select: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.folder-card-item:hover { background: var(--line); border-color: var(--gemini); }
+.modal-footer {
+  padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: var(--bg);
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo-title">
+      <span>⚡ AI Hub</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" id="tab-btn-squad" onclick="switchTab('squad')">📋 Squad & Tasks</button>
+      <button class="tab-btn" id="tab-btn-chat" onclick="switchTab('chat')">💬 Direct Chat</button>
+      <button class="tab-btn" id="tab-btn-usage" onclick="switchTab('usage')">📊 Usage Meter</button>
+    </div>
+    <span class="sub"><span class="live" id="live"></span><span id="upd">กำลังเชื่อมต่อ…</span></span>
+  </header>
+
+  <!-- PANE 1: SQUAD PLANNER & TASK BOARD -->
+  <div class="tab-pane active" id="pane-squad">
+    <div class="workspace-layout">
+      <!-- LEFT HUD: GUI USAGE METERS -->
+      <aside class="sidebar-hud" id="hud-squad">
+        <div class="hud-title"><span>⚡ Quota HUD</span><span>Realtime</span></div>
+        <!-- Claude Meter Card -->
+        <div class="gui-meter-card" id="hud-card-squad-claude" style="--c:var(--claude)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--claude)"></span>Claude Code</span>
+            <span class="meter-tag ready" id="hud-squad-tag-claude">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-squad-ring-week-claude" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-squad-ring-h5-claude" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-squad-val-claude">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-squad-txt-h5-claude">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-squad-txt-week-claude">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-squad-reset-claude">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+
+        <!-- ChatGPT Meter Card -->
+        <div class="gui-meter-card" id="hud-card-squad-chatgpt" style="--c:var(--chatgpt)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--chatgpt)"></span>ChatGPT (Codex)</span>
+            <span class="meter-tag ready" id="hud-squad-tag-chatgpt">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-squad-ring-week-chatgpt" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-squad-ring-h5-chatgpt" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-squad-val-chatgpt">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-squad-txt-h5-chatgpt">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-squad-txt-week-chatgpt">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-squad-reset-chatgpt">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+
+        <!-- Gemini Meter Card -->
+        <div class="gui-meter-card" id="hud-card-squad-gemini" style="--c:var(--gemini)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--gemini)"></span>Gemini (Antigravity)</span>
+            <span class="meter-tag ready" id="hud-squad-tag-gemini">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-squad-ring-week-gemini" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-squad-ring-h5-gemini" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-squad-val-gemini">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-squad-txt-h5-gemini">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-squad-txt-week-gemini">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-squad-reset-gemini">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT MAIN CONTENT: SQUAD & TASKS -->
+      <div class="main-workspace">
+        <div class="box">
+          <div class="box-title">
+            <span>📁 กำหนดโปรเจกต์ & หัวข้อสั่งงาน</span>
+            <span class="sub" style="font-size:12px">👑 Lead PM: <b>Gemini (Antigravity)</b></span>
+          </div>
+
+          <div class="project-bar">
+            <label style="font-size:13.5px; font-weight:600">โฟลเดอร์โปรเจกต์:</label>
+            <input type="text" id="project-path" class="project-input" value="c:\Users\spc\Documents\Project App\Usage Meter" onchange="saveProjectAndCheck()">
+            <button class="btn" onclick="openFolderModal()">📂 Browse...</button>
+            <button class="btn" onclick="checkProject()">🔄 ตรวจสอบ</button>
+            <span class="project-status" id="project-status">พร้อมทำงาน</span>
+          </div>
+
+          <textarea id="squad-prompt" class="prompt-area" placeholder="พิมพ์ Requirement หรือ Feature ที่ต้องการพัฒนา (สามารถกด Ctrl+V เพื่อวางรูปภาพหน้าจอ หรือลากรูปมาวางได้)..."></textarea>
+
+          <!-- Image Attachment Preview Box for Squad -->
+          <div class="image-attach-preview" id="squad-image-preview" style="display:none">
+            <img id="squad-img-tag" src="" alt="Attached Screenshot">
+            <div class="image-attach-info">
+              <span class="image-attach-name" id="squad-img-name">screenshot.png</span>
+              <span class="image-attach-size" id="squad-img-size">-- KB</span>
+            </div>
+            <button class="btn-remove-img" type="button" onclick="removeAttachedImage('squad')" title="ลบรูป">✕</button>
+          </div>
+
+          <div class="box-actions">
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+              <label class="btn" style="font-size:12px; cursor:pointer" title="แนบรูปภาพหรือกด Ctrl+V ในช่องข้อความเพื่อวางรูป">
+                📷 แนบรูป (Ctrl+V)
+                <input type="file" id="squad-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event, 'squad')">
+              </label>
+              <span class="sub" style="font-size:12px">💡 ระบบจะสร้าง/อัปเดตไฟล์ <code>TASKS.md</code> ในโฟลเดอร์ให้อัตโนมัติ</span>
+            </div>
+            <button class="btn btn-primary" id="btn-brainstorm" onclick="startBrainstormAndPlan()">
+              <span id="btn-brainstorm-icon">🧠</span> <span id="btn-brainstorm-text">ให้ 3 ค่ายระดมสมอง & Gemini สรุปแผน</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Status Banner -->
+        <div class="stage-banner" id="stage-banner"></div>
+
+        <!-- Live Squad Activity Radar Box -->
+        <div class="squad-live-grid" id="squad-live-grid">
+          <div class="squad-live-card" id="live-card-claude" style="--c:var(--claude)">
+            <div class="squad-live-header">
+              <span><span class="dot" style="background:var(--claude)"></span> Claude (Architecture)</span>
+              <span id="live-status-claude" style="font-size:11px; color:var(--muted)">รอเริ่ม</span>
+            </div>
+            <div class="squad-live-preview" id="live-preview-claude">...</div>
+          </div>
+          <div class="squad-live-card" id="live-card-chatgpt" style="--c:var(--chatgpt)">
+            <div class="squad-live-header">
+              <span><span class="dot" style="background:var(--chatgpt)"></span> ChatGPT (QA & API)</span>
+              <span id="live-status-chatgpt" style="font-size:11px; color:var(--muted)">รอเริ่ม</span>
+            </div>
+            <div class="squad-live-preview" id="live-preview-chatgpt">...</div>
+          </div>
+          <div class="squad-live-card" id="live-card-gemini" style="--c:var(--gemini)">
+            <div class="squad-live-header">
+              <span><span class="dot" style="background:var(--gemini)"></span> Gemini (System Flow)</span>
+              <span id="live-status-gemini" style="font-size:11px; color:var(--muted)">รอเริ่ม</span>
+            </div>
+            <div class="squad-live-preview" id="live-preview-gemini">...</div>
+          </div>
+        </div>
+
+        <!-- PM Synthesis & Executive Summary Card (ช่องข้อสรุปรวมจาก PM) -->
+        <div class="pm-synthesis-box" id="pm-synthesis-box">
+          <div class="pm-synthesis-header">
+            <div class="pm-synthesis-title">
+              <span style="font-size:17px">👑</span>
+              <span>ข้อสรุปรวมจาก Project Manager (Gemini PM)</span>
+            </div>
+            <span class="res-badge" id="pm-synthesis-badge">รอเริ่มสังเคราะห์</span>
+          </div>
+          <div class="pm-synthesis-content" id="pm-synthesis-body"></div>
+          <div id="pm-decisions-container" style="display:none">
+            <div style="font-size:13px; font-weight:700; margin-top:14px; margin-bottom:8px; color:var(--muted); display:flex; align-items:center; gap:6px">
+              <span>📌</span> มติข้อตกลงและการตัดสินใจหลัก (Key Strategic Decisions)
+            </div>
+            <div class="pm-decisions-grid" id="pm-decisions-list"></div>
+          </div>
+        </div>
+
+        <!-- Task Board Container -->
+        <div class="box" id="tasks-container" style="display:none">
+          <div class="box-title">
+            <span id="tasks-heading">📋 รายการงาน (Task Breakdown)</span>
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+              <button class="btn" style="font-size:12px" onclick="loadProjectTasks()">🔄 รีโหลด TASKS.md</button>
+              <button class="btn" style="font-size:12px" onclick="resetAllTasks()" title="ยกเลิกการติ๊กเสร็จทั้งหมดเพื่อสั่งรันใหม่">↩️ รีเซ็ตเป็น "รอทำ" ทั้งหมด</button>
+              <button class="btn btn-success" id="btn-run-all" style="font-size:12px" onclick="runAllTasks()">🚀 สั่งรันทุก Task ตามลำดับ</button>
+            </div>
+          </div>
+          <div id="tasks-summary" style="display:none"></div>
+          <div id="tasks-list"></div>
+        </div>
+
+        <!-- Live Execution Console -->
+        <div class="box" id="console-box-container" style="display:none">
+          <div class="box-title">
+            <span id="console-title">💻 Execution Output</span>
+            <button class="btn" style="font-size:11px" onclick="clearConsole()">ล้างหน้าจอ</button>
+          </div>
+          <div class="console-box" id="console-output"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANE 2: DIRECT CHAT (ARENA) -->
+  <div class="tab-pane" id="pane-chat">
+    <div class="workspace-layout">
+      <!-- LEFT HUD: GUI USAGE METERS (SHARED) -->
+      <aside class="sidebar-hud" id="hud-chat">
+        <div class="hud-title"><span>⚡ Quota HUD</span><span>Realtime</span></div>
+        <!-- Claude Meter Card -->
+        <div class="gui-meter-card" id="hud-card-chat-claude" style="--c:var(--claude)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--claude)"></span>Claude Code</span>
+            <span class="meter-tag ready" id="hud-chat-tag-claude">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-chat-ring-week-claude" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-chat-ring-h5-claude" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-chat-val-claude">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-chat-txt-h5-claude">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-chat-txt-week-claude">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-chat-reset-claude">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+
+        <!-- ChatGPT Meter Card -->
+        <div class="gui-meter-card" id="hud-card-chat-chatgpt" style="--c:var(--chatgpt)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--chatgpt)"></span>ChatGPT (Codex)</span>
+            <span class="meter-tag ready" id="hud-chat-tag-chatgpt">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-chat-ring-week-chatgpt" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-chat-ring-h5-chatgpt" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-chat-val-chatgpt">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-chat-txt-h5-chatgpt">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-chat-txt-week-chatgpt">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-chat-reset-chatgpt">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+
+        <!-- Gemini Meter Card -->
+        <div class="gui-meter-card" id="hud-card-chat-gemini" style="--c:var(--gemini)">
+          <div class="meter-head">
+            <span class="meter-name"><span class="dot" style="background:var(--gemini)"></span>Gemini (Antigravity)</span>
+            <span class="meter-tag ready" id="hud-chat-tag-gemini">พร้อมรัน</span>
+          </div>
+          <div class="radial-gauge-container">
+            <div class="radial-gauge-wrapper">
+              <svg class="radial-gauge-svg" viewBox="0 0 120 120">
+                <circle class="gauge-track outer" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-fill outer" id="hud-chat-ring-week-gemini" cx="60" cy="60" r="50"></circle>
+                <circle class="gauge-track inner" cx="60" cy="60" r="38"></circle>
+                <circle class="gauge-fill inner" id="hud-chat-ring-h5-gemini" cx="60" cy="60" r="38"></circle>
+              </svg>
+              <div class="radial-gauge-center">
+                <div class="radial-gauge-value" id="hud-chat-val-gemini">--%</div>
+                <div class="radial-gauge-label">5 ชม. เหลือ</div>
+              </div>
+            </div>
+          </div>
+          <div class="gauge-legend-list">
+            <div class="gauge-legend-row">
+              <span class="legend-indicator inner"></span>
+              <span class="legend-title">วงใน (5 ชม.):</span>
+              <b class="legend-val" id="hud-chat-txt-h5-gemini">เหลือ --%</b>
+            </div>
+            <div class="gauge-legend-row">
+              <span class="legend-indicator outer"></span>
+              <span class="legend-title">วงนอก (สัปดาห์):</span>
+              <b class="legend-val" id="hud-chat-txt-week-gemini">เหลือ --%</b>
+            </div>
+            <div class="gauge-countdown-row" id="hud-chat-reset-gemini">⏱ รีเซ็ตใน --</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT MAIN CONTENT: DIRECT CHAT ARENA -->
+      <div class="main-workspace">
+        <div class="box">
+          <div class="box-title">
+            <span>💬 Direct Chat / Parallel Arena</span>
+            <span class="sub" style="font-size:12px">ส่งถาม-ตอบ หรือเทียบคำตอบ 3 เจ้าขนานกัน</span>
+          </div>
+
+          <div style="margin-bottom:12px; padding:6px 12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; font-size:12.5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+            <span style="font-weight:600">📁 โฟลเดอร์โปรเจกต์:</span>
+            <span id="chat-project-label" style="font-family:monospace; color:var(--text)">c:\Users\spc\Documents\Project App\Usage Meter</span>
+            <span style="font-size:11px; color:var(--muted); margin-left:auto">💡 AI ทั้ง 3 ตัวจะค้นหาไฟล์และตอบคำถามอิงจากโปรเจกต์นี้</span>
+          </div>
+
+          <!-- Provider Checkboxes & 1-Click Presets -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:10px">
+            <div style="display:flex; gap:16px; flex-wrap:wrap">
+              <label style="font-weight:600; cursor:pointer"><input type="checkbox" id="check-claude" checked> 🟧 Claude</label>
+              <label style="font-weight:600; cursor:pointer"><input type="checkbox" id="check-chatgpt" checked> 🟩 ChatGPT</label>
+              <label style="font-weight:600; cursor:pointer"><input type="checkbox" id="check-gemini" checked> 🟦 Gemini</label>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center">
+              <span style="font-size:11.5px; color:var(--muted)">โหมดความเร็ว:</span>
+              <button class="shortcut-pill active preset-fast" id="btn-preset-fast" type="button" onclick="applyPreset('fast')" title="ตอบไวใน 5-10 วินาที และประหยัดโควต้าสูงสุด">⚡ ไว & ประหยัด</button>
+              <button class="shortcut-pill" id="btn-preset-deep" type="button" onclick="applyPreset('deep')" title="คิดรอบคอบ เจาะอ่านลึกทุกไฟล์">🧠 คิดลึกรอบคอบ</button>
+              <button class="shortcut-pill" id="btn-toggle-model-settings" type="button" onclick="toggleModelSettings()">⚙️ ปรับ Model</button>
+            </div>
+          </div>
+
+          <!-- Model & Effort Settings Drawer -->
+          <div id="model-settings-drawer" style="display:none; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:12px;">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:12px">
+              <!-- Claude Config -->
+              <div style="border-left: 3px solid var(--claude); padding-left: 8px">
+                <div style="font-weight:700; margin-bottom:4px; color:var(--text)">🟧 Claude Config</div>
+                <div style="display:flex; flex-direction:column; gap:4px">
+                  <label style="color:var(--muted)">Model:
+                    <select id="cfg-model-claude" class="provider-select" style="width:100%; margin-top:2px">
+                      <option value="default" selected>Claude Sonnet (Default)</option>
+                      <option value="claude-3-5-haiku">Claude 3.5 Haiku (ไวสุด/ประหยัด)</option>
+                    </select>
+                  </label>
+                  <label style="color:var(--muted)">Effort:
+                    <select id="cfg-effort-claude" class="provider-select" style="width:100%; margin-top:2px">
+                      <option value="default" selected>Normal</option>
+                      <option value="low">Low (ตอบกระชับ)</option>
+                      <option value="high">High (วิเคราะห์ละเอียด)</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <!-- ChatGPT Config -->
+              <div style="border-left: 3px solid var(--chatgpt); padding-left: 8px">
+                <div style="font-weight:700; margin-bottom:4px; color:var(--text)">🟩 ChatGPT Config</div>
+                <div style="display:flex; flex-direction:column; gap:4px">
+                  <label style="color:var(--muted)">Model:
+                    <select id="cfg-model-chatgpt" class="provider-select" style="width:100%; margin-top:2px">
+                      <option value="default" selected>Default (GPT-4o)</option>
+                      <option value="o3-mini">o3-mini (Smart Reasoning)</option>
+                      <option value="o1">o1 (Full Reasoning)</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Gemini Config -->
+              <div style="border-left: 3px solid var(--gemini); padding-left: 8px">
+                <div style="font-weight:700; margin-bottom:4px; color:var(--text)">🟦 Gemini Config</div>
+                <div style="display:flex; flex-direction:column; gap:4px">
+                  <label style="color:var(--muted)">Model:
+                    <select id="cfg-model-gemini" class="provider-select" style="width:100%; margin-top:2px">
+                      <option value="default">Gemini Auto</option>
+                      <option value="gemini-3.8-flash-low" selected>Gemini 3.8 Flash (ไวสุด/ประหยัด)</option>
+                      <option value="gemini-3.8-flash-high">Gemini 3.8 Flash (High)</option>
+                    </select>
+                  </label>
+                  <label style="color:var(--muted)">Effort:
+                    <select id="cfg-effort-gemini" class="provider-select" style="width:100%; margin-top:2px">
+                      <option value="low" selected>Low (เร็ว 5-10 วินาที ⚡)</option>
+                      <option value="medium">Medium (ปานกลาง)</option>
+                      <option value="high">High (เจาะอ่านลึกทุกไฟล์)</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <textarea id="prompt-input" class="prompt-area" placeholder="พิมพ์คำถาม หรือ Requirement (สามารถกด Ctrl+V เพื่อวางรูปภาพ หรือลากรูปมาวางได้)..."></textarea>
+
+          <!-- Image Attachment Preview Box for Direct Chat -->
+          <div class="image-attach-preview" id="chat-image-preview" style="display:none">
+            <img id="chat-img-tag" src="" alt="Attached Screenshot">
+            <div class="image-attach-info">
+              <span class="image-attach-name" id="chat-img-name">screenshot.png</span>
+              <span class="image-attach-size" id="chat-img-size">-- KB</span>
+            </div>
+            <button class="btn-remove-img" type="button" onclick="removeAttachedImage('chat')" title="ลบรูป">✕</button>
+          </div>
+
+          <div class="box-actions">
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+              <label class="btn" style="font-size:12px; cursor:pointer" title="แนบรูปภาพหรือกด Ctrl+V ในช่องข้อความเพื่อวางรูป">
+                📷 แนบรูป (Ctrl+V)
+                <input type="file" id="chat-file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event, 'chat')">
+              </label>
+              <span class="sub" style="font-size:12px">กด Ctrl + Enter เพื่อส่งคำสั่ง</span>
+            </div>
+            <div style="display:flex; gap:8px">
+              <button class="btn btn-danger" id="btn-stop" onclick="stopExecution()" style="display:none">⏹ ยกเลิก</button>
+              <button class="btn btn-primary" id="btn-send" onclick="sendDirectPrompt()">
+                <span id="btn-send-icon">🚀</span> <span id="btn-send-text">ส่งคำสั่ง</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="arena-grid">
+          <div class="response-card" id="card-claude" style="--c:var(--claude)">
+            <div class="res-header">
+              <div class="res-title"><span class="dot" style="background:var(--claude)"></span> Claude Code</div>
+              <span class="res-badge" id="badge-claude">พร้อมทำงาน</span>
+            </div>
+            <div class="res-body empty" id="body-claude">รอคำสั่ง...</div>
+            <div class="res-footer"><span id="timer-claude">0.0s</span><button onclick="copyResponse('claude')">📋 คัดลอก</button></div>
+          </div>
+          <div class="response-card" id="card-chatgpt" style="--c:var(--chatgpt)">
+            <div class="res-header">
+              <div class="res-title"><span class="dot" style="background:var(--chatgpt)"></span> ChatGPT (Codex)</div>
+              <span class="res-badge" id="badge-chatgpt">พร้อมทำงาน</span>
+            </div>
+            <div class="res-body empty" id="body-chatgpt">รอคำสั่ง...</div>
+            <div class="res-footer"><span id="timer-chatgpt">0.0s</span><button onclick="copyResponse('chatgpt')">📋 คัดลอก</button></div>
+          </div>
+          <div class="response-card" id="card-gemini" style="--c:var(--gemini)">
+            <div class="res-header">
+              <div class="res-title"><span class="dot" style="background:var(--gemini)"></span> Gemini (Antigravity)</div>
+              <span class="res-badge" id="badge-gemini">พร้อมทำงาน</span>
+            </div>
+            <div class="res-body empty" id="body-gemini">รอคำสั่ง...</div>
+            <div class="res-footer"><span id="timer-gemini">0.0s</span><button onclick="copyResponse('gemini')">📋 คัดลอก</button></div>
+          </div>
+        </div>
+
+        <!-- DIRECT CHAT SYNTHESIS CARD (ข้อสรุปรวมคำตอบทั้ง 3 ค่าย) -->
+        <div class="pm-synthesis-box" id="chat-synthesis-box" style="display:none; margin-top:16px;">
+          <div class="pm-synthesis-header">
+            <div class="pm-synthesis-title">
+              <span style="font-size:17px">👑</span>
+              <span>ข้อสรุปรวมคำตอบจากทั้ง 3 ค่าย โดย Gemini PM</span>
+            </div>
+            <span class="res-badge" id="chat-synthesis-badge">รอคำตอบ...</span>
+          </div>
+          <div class="pm-synthesis-content" id="chat-synthesis-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANE 3: USAGE METER -->
+  <div class="tab-pane" id="pane-usage">
+    <div class="grid" id="grid"></div>
+    <p class="note">อัปเดตแบบ realtime · "จากแพ็กเกจจริง" คือค่าจากบัญชีโดยตรง ส่วนช่องที่ไม่มีค่านี้จะนับจาก log ในเครื่องและต้องกด "ตั้ง limit" เอง · วันที่ในกราฟเป็น UTC</p>
+  </div>
+
+  <!-- FOLDER BROWSER MODAL -->
+  <div id="folder-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="margin:0; font-size:16px; display:flex; align-items:center; gap:8px">📁 เลือกโฟลเดอร์โปรเจกต์</h3>
+        <button class="modal-close-btn" onclick="closeFolderModal()">✕</button>
+      </div>
+
+      <div class="modal-shortcuts">
+        <button class="shortcut-pill" onclick="browseTo('documents')">📁 Documents</button>
+        <button class="shortcut-pill" onclick="browseTo('desktop')">💻 Desktop</button>
+        <button class="shortcut-pill" onclick="browseTo('home')">🏠 User Home</button>
+      </div>
+
+      <div class="modal-path-bar">
+        <button class="btn" id="btn-up-dir" onclick="browseUp()" title="ย้อนกลับหนึ่งระดับ" style="padding:5px 10px">⬆</button>
+        <input type="text" id="modal-current-path" class="project-input" style="font-size:12.5px; padding:6px 10px" onkeydown="if(event.key==='Enter') browseTo(this.value)">
+        <button class="btn" onclick="browseTo(document.getElementById('modal-current-path').value)" style="font-size:12px; padding:5px 12px">ไป</button>
+      </div>
+
+      <div class="modal-filter">
+        <input type="text" id="folder-search" placeholder="🔍 ค้นหาชื่อโฟลเดอร์ในหน้านี้..." oninput="filterFolders(this.value)">
+      </div>
+
+      <div class="modal-folder-list" id="modal-folder-list">
+        <div style="text-align:center; padding:20px; color:var(--muted)">กำลังโหลด...</div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn" onclick="openNativeDialog()">🪟 Windows Explorer...</button>
+        <div style="display:flex; gap:8px">
+          <button class="btn" onclick="closeFolderModal()">ยกเลิก</button>
+          <button class="btn btn-primary" onclick="confirmFolderSelect()">✅ เลือกโฟลเดอร์นี้</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const BASE = location.protocol === 'file:' ? 'http://localhost:3939' : '';
+const META = {
+  claude:  { label: 'Claude',  color: 'var(--claude)' },
+  chatgpt: { label: 'ChatGPT', color: 'var(--chatgpt)' },
+  gemini:  { label: 'Gemini',  color: 'var(--gemini)' },
+};
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById(`tab-btn-${tab}`).classList.add('active');
+  document.getElementById(`pane-${tab}`).classList.add('active');
+}
+
+/* ==================== IMAGE ATTACHMENT & DRAG/DROP/PASTE ==================== */
+const attachedImages = { squad: null, chat: null };
+
+function formatFileSize(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function processImageFile(file, tab) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    attachedImages[tab] = {
+      name: file.name || 'screenshot.png',
+      size: file.size || Math.round(dataUrl.length * 0.75),
+      dataUrl: dataUrl
+    };
+    renderImagePreview(tab);
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleFileSelect(event, tab) {
+  const file = event.target.files && event.target.files[0];
+  if (file) {
+    processImageFile(file, tab);
+    event.target.value = '';
+  }
+}
+
+function removeAttachedImage(tab) {
+  attachedImages[tab] = null;
+  renderImagePreview(tab);
+}
+
+function renderImagePreview(tab) {
+  const preview = document.getElementById(`${tab}-image-preview`);
+  const imgTag = document.getElementById(`${tab}-img-tag`);
+  const nameTag = document.getElementById(`${tab}-img-name`);
+  const sizeTag = document.getElementById(`${tab}-img-size`);
+  if (!preview) return;
+
+  const data = attachedImages[tab];
+  if (data) {
+    imgTag.src = data.dataUrl;
+    nameTag.textContent = data.name;
+    sizeTag.textContent = formatFileSize(data.size);
+    preview.style.display = 'flex';
+  } else {
+    preview.style.display = 'none';
+    imgTag.src = '';
+  }
+}
+
+function setupPasteAndDrop(elementId, tab) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+
+  el.addEventListener('paste', (e) => {
+    const items = (e.clipboardData || window.clipboardData)?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type && item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          processImageFile(file, tab);
+          e.preventDefault();
+          break;
+        }
+      }
+    }
+  });
+
+  el.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    el.classList.add('dragover');
+  });
+  el.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    el.classList.remove('dragover');
+  });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    el.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type && file.type.startsWith('image/')) {
+        processImageFile(file, tab);
+      }
+    }
+  });
+}
+
+// Global paste listener: captures Ctrl+V anywhere on the page
+document.addEventListener('paste', (e) => {
+  if (document.activeElement && (document.activeElement.id === 'squad-prompt' || document.activeElement.id === 'prompt-input')) {
+    return;
+  }
+  const items = (e.clipboardData || window.clipboardData)?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type && item.type.indexOf('image') !== -1) {
+      const file = item.getAsFile();
+      if (file) {
+        const squadPane = document.getElementById('pane-squad');
+        const activeTab = (squadPane && squadPane.classList.contains('active')) ? 'squad' : 'chat';
+        processImageFile(file, activeTab);
+        e.preventDefault();
+        break;
+      }
+    }
+  }
+});
+
+/* ==================== USAGE METER & GUI HUD ==================== */
+const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n));
+const sum = (days, f) => days.reduce((a, d) => a + d[f], 0);
+const cls = pct => pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '';
+let data = null;
+
+function dur(ms) {
+  if (!ms || ms <= 0) return '—';
+  const m = Math.ceil(ms / 60000), h = Math.floor(m / 60);
+  if (h >= 24) return Math.floor(h / 24) + ' วัน ' + (h % 24) + ' ชม.';
+  return h ? `${h} ชม. ${m % 60} น.` : `${m} น.`;
+}
+
+function bar(pct) { return `<div class="bar"><i class="${cls(pct)}" style="width:${pct}%"></i></div>`; }
+
+function winHtml(k, w, noTokens) {
+  const u = noTokens ? 'เซสชัน' : 'tokens';
+  const reset = w.resetsAt ? `รีเซ็ตใน ${dur(w.resetsAt - Date.now())}` : 'ยังไม่ได้ใช้';
+  if (!w.limit) return `<div class="win"><div class="wh"><span>${w.label}</span><span>ใช้ไป ${fmt(w.used)} ${u}</span></div>${bar(0)}
+    <div class="wf"><span>${reset}</span><a data-set="${k}:${w.key}">ตั้ง limit เพื่อดูที่เหลือ</a></div></div>`;
+  return `<div class="win"><div class="wh"><span>${w.label}</span><span>เหลือ ${(100 - w.pct).toFixed(0)}%</span></div>${bar(w.pct)}
+    <div class="wf"><span>ใช้ไป ${w.pct.toFixed(0)}% (${fmt(w.used)} / ${fmt(w.limit)}) · ${reset}</span><a data-set="${k}:${w.key}">แก้ limit</a></div></div>`;
+}
+
+function realHtml(l) {
+  const left = Math.max(0, 100 - l.pct);
+  return `<div class="win"><div class="wh"><span>${l.label} (จากแพ็กเกจจริง)</span><span>เหลือ ${left.toFixed(0)}%</span></div>${bar(l.pct)}
+    <div class="wf"><span>ใช้ไป ${l.pct.toFixed(0)}%</span><span>รีเซ็ตใน ${dur(l.resetsAt - Date.now())}</span></div></div>`;
+}
+
+function card(k, p) {
+  const m = META[k];
+  const head = `<div class="name"><span class="dot"></span>${m.label}</div>`;
+  if (!p || !p.ok) return `<div class="card" style="--c:${m.color}">${head}<div class="err">${p ? p.error : 'กำลังโหลด…'}</div></div>`;
+  const f = p.noTokens ? 'requests' : 'tokens';
+  const today = p.days[p.days.length - 1];
+  const max = Math.max(1, ...p.days.map(d => d[f]));
+  const costRow = p.days.some(d => d.cost) ? `<div class="row"><span>ค่าใช้จ่าย 7 วัน</span><b>$${sum(p.days, 'cost').toFixed(2)}</b></div>` : '';
+  return `<div class="card" style="--c:${m.color}">${head}
+    ${(p.realLimits || [])[0]
+      ? `<div class="big">${(100 - p.realLimits[0].pct).toFixed(0)}% <small>เหลือ (${p.realLimits[0].label})</small></div>
+         <div class="row"><span>วันนี้ใช้ไป</span><b>${fmt(today[f])} ${p.noTokens ? 'เซสชัน' : 'tokens'}</b></div>`
+      : `<div class="big">${fmt(today[f])} <small>${p.noTokens ? 'เซสชัน' : 'tokens'} วันนี้</small></div>`}
+    ${(p.windows || []).map(w => winHtml(k, w, p.noTokens)).join('')}
+    ${(p.realLimits || []).map(realHtml).join('')}
+    <div class="row"><span>7 วัน</span><b>${fmt(sum(p.days, f))}</b></div>${costRow}
+    <div class="hist">${p.days.map(d => `<div title="${d.date}: ${fmt(d[f])}" style="height:${d[f] / max * 100}%"></div>`).join('')}</div>
+    <div class="hl">${p.days.map(d => `<span>${d.date.slice(8)}</span>`).join('')}</div>
+    ${p.source ? `<div class="err">แหล่งข้อมูล: ${p.source}</div>` : ''}</div>`;
+}
+
+function getQuotaLeft(prov) {
+  if (!data || !data[prov]) return 100;
+  const p = data[prov];
+  if (p.realLimits && p.realLimits.length > 0) return Math.max(0, 100 - p.realLimits[0].pct);
+  if (p.windows && p.windows.length > 0 && p.windows[0].pct != null) return Math.max(0, 100 - p.windows[0].pct);
+  return 100;
+}
+
+function setCardBusy(tab, prov, isBusy) {
+  const card = document.getElementById(`hud-card-${tab}-${prov}`);
+  const tag = document.getElementById(`hud-${tab}-tag-${prov}`);
+  if (card) {
+    if (isBusy) card.classList.add('active-working');
+    else card.classList.remove('active-working');
+  }
+  if (tag) {
+    if (isBusy) { tag.innerHTML = '<span class="spinner-icon"></span> กำลังรัน'; tag.className = 'meter-tag busy'; }
+    else { updateHudMeters(); }
+  }
+}
+
+function updateHudMeters() {
+  if (!data) return;
+  for (const tab of ['squad', 'chat']) {
+    for (const k of ['claude', 'chatgpt', 'gemini']) {
+      const p = data[k];
+      const leftH5 = getQuotaLeft(k);
+
+      // Calculate weekly %
+      let leftWeek = 100;
+      if (p && p.realLimits && p.realLimits.length > 1) {
+        leftWeek = Math.max(0, 100 - p.realLimits[1].pct);
+      } else if (p && p.windows && p.windows.length > 1 && p.windows[1].pct != null) {
+        leftWeek = Math.max(0, 100 - p.windows[1].pct);
+      } else {
+        leftWeek = leftH5; // fallback
+      }
+
+      // 1. Center Value
+      const valEl = document.getElementById(`hud-${tab}-val-${k}`);
+      if (valEl) valEl.textContent = `${leftH5.toFixed(0)}%`;
+
+      // 2. Inner Ring (5h): circumference = 238.76
+      const ringH5 = document.getElementById(`hud-${tab}-ring-h5-${k}`);
+      if (ringH5) {
+        const offsetH5 = 238.76 * (1 - leftH5 / 100);
+        ringH5.style.strokeDashoffset = offsetH5;
+        ringH5.className = 'gauge-fill inner' + (leftH5 <= 15 ? ' danger' : leftH5 <= 35 ? ' warn' : '');
+      }
+
+      // 3. Outer Ring (Weekly): circumference = 314.16
+      const ringWeek = document.getElementById(`hud-${tab}-ring-week-${k}`);
+      if (ringWeek) {
+        const offsetWeek = 314.16 * (1 - leftWeek / 100);
+        ringWeek.style.strokeDashoffset = offsetWeek;
+        ringWeek.className = 'gauge-fill outer' + (leftWeek <= 15 ? ' danger' : leftWeek <= 35 ? ' warn' : '');
+      }
+
+      // 4. Legend text values
+      const txtH5 = document.getElementById(`hud-${tab}-txt-h5-${k}`);
+      if (txtH5) txtH5.textContent = `เหลือ ${leftH5.toFixed(0)}%`;
+
+      const txtWeek = document.getElementById(`hud-${tab}-txt-week-${k}`);
+      if (txtWeek) txtWeek.textContent = `เหลือ ${leftWeek.toFixed(0)}%`;
+
+      // 5. Status tag
+      const tagEl = document.getElementById(`hud-${tab}-tag-${k}`);
+      if (tagEl && !tagEl.classList.contains('busy')) {
+        if (leftH5 <= 10) { tagEl.textContent = 'โควต้าต่ำ ⚠️'; tagEl.className = 'meter-tag danger'; }
+        else if (leftH5 <= 30) { tagEl.textContent = 'ใกล้เต็ม'; tagEl.className = 'meter-tag warn'; }
+        else { tagEl.textContent = 'พร้อมรัน ✅'; tagEl.className = 'meter-tag ready'; }
+      }
+
+      // 6. Reset Countdown
+      const resetEl = document.getElementById(`hud-${tab}-reset-${k}`);
+      if (p && p.realLimits && p.realLimits[0] && resetEl) {
+        const diff = p.realLimits[0].resetsAt - Date.now();
+        resetEl.textContent = diff > 0 ? `⏱ รีเซ็ตใน ${dur(diff)}` : '⏱ รีเซ็ตแล้ว';
+      }
+    }
+  }
+}
+
+function render() {
+  if (!data) return;
+  document.getElementById('grid').innerHTML = Object.keys(META).map(k => card(k, data[k])).join('');
+  document.getElementById('upd').textContent = 'realtime · อัปเดต ' + new Date(data.updated).toLocaleTimeString('th-TH');
+  updateHudMeters();
+}
+
+let es;
+function connect() {
+  es = new EventSource(BASE + '/api/stream');
+  es.onopen = () => document.getElementById('live').classList.add('on');
+  es.onmessage = ev => { data = JSON.parse(ev.data); render(); };
+  es.onerror = () => { document.getElementById('live').classList.remove('on'); document.getElementById('upd').textContent = 'เชื่อมต่อ server ไม่ได้'; };
+}
+connect();
+setInterval(render, 30000);
+
+/* ==================== FOLDER EXPLORER MODAL ==================== */
+let modalCurrentPath = '';
+let modalParentPath = null;
+let modalFolders = [];
+let modalShortcuts = {};
+
+async function openFolderModal() {
+  const currentVal = document.getElementById('project-path').value.trim();
+  document.getElementById('folder-modal').style.display = 'flex';
+  await browseTo(currentVal || '');
+}
+
+function closeFolderModal() {
+  document.getElementById('folder-modal').style.display = 'none';
+}
+
+async function browseTo(dir) {
+  const listEl = document.getElementById('modal-folder-list');
+  listEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--muted)">กำลังโหลดโฟลเดอร์...</div>';
+
+  let q = '';
+  if (dir === 'documents' && modalShortcuts.documents) q = `?path=${encodeURIComponent(modalShortcuts.documents)}`;
+  else if (dir === 'desktop' && modalShortcuts.desktop) q = `?path=${encodeURIComponent(modalShortcuts.desktop)}`;
+  else if (dir === 'home' && modalShortcuts.home) q = `?path=${encodeURIComponent(modalShortcuts.home)}`;
+  else if (dir) q = `?path=${encodeURIComponent(dir)}`;
+
+  try {
+    const res = await fetch(BASE + `/api/browse${q}`);
+    const j = await res.json();
+    if (j.error) throw new Error(j.error);
+
+    modalCurrentPath = j.current;
+    modalParentPath = j.parent;
+    modalFolders = j.dirs || [];
+    modalShortcuts = { home: j.home, documents: j.documents, desktop: j.desktop };
+
+    document.getElementById('modal-current-path').value = modalCurrentPath;
+    document.getElementById('btn-up-dir').disabled = !modalParentPath;
+
+    renderModalFolders(modalFolders);
+  } catch (err) {
+    listEl.innerHTML = `<div style="color:var(--danger); padding:20px">เข้าถึงโฟลเดอร์ไม่สำเร็จ: ${err.message}</div>`;
+  }
+}
+
+function browseUp() {
+  if (modalParentPath) browseTo(modalParentPath);
+}
+
+function renderModalFolders(dirs) {
+  const listEl = document.getElementById('modal-folder-list');
+  listEl.innerHTML = '';
+  if (!dirs.length) {
+    listEl.innerHTML = '<div style="grid-column: 1/-1; color:var(--muted); text-align:center; padding:20px">ไม่มีโฟลเดอร์ย่อยในโฟลเดอร์นี้</div>';
+    return;
+  }
+  dirs.forEach(name => {
+    const item = document.createElement('div');
+    item.className = 'folder-card-item';
+    item.innerHTML = `<span>📁</span> <span title="${name}">${name}</span>`;
+    item.onclick = () => {
+      const sep = modalCurrentPath.endsWith('\\') || modalCurrentPath.endsWith('/') ? '' : '\\';
+      browseTo(modalCurrentPath + sep + name);
+    };
+    listEl.appendChild(item);
+  });
+}
+
+function filterFolders(term) {
+  const q = term.toLowerCase().trim();
+  if (!q) { renderModalFolders(modalFolders); return; }
+  const filtered = modalFolders.filter(d => d.toLowerCase().includes(q));
+  renderModalFolders(filtered);
+}
+
+function confirmFolderSelect() {
+  document.getElementById('project-path').value = modalCurrentPath;
+  localStorage.setItem('ai_hub_last_project', modalCurrentPath);
+  closeFolderModal();
+  checkProject();
+}
+
+async function openNativeDialog() {
+  const btn = event.target;
+  const oldText = btn.textContent;
+  btn.textContent = '⏳ กำลังเปิด...';
+  try {
+    const res = await fetch(BASE + '/api/browse-native', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initial: modalCurrentPath })
+    });
+    const j = await res.json();
+    if (j.selected) {
+      modalCurrentPath = j.selected;
+      confirmFolderSelect();
+    }
+  } catch (err) {
+  } finally {
+    btn.textContent = oldText;
+  }
+}
+
+/* ==================== SQUAD & TASKS ORCHESTRATOR ==================== */
+let currentTasks = [];
+
+function saveProjectAndCheck() {
+  const p = document.getElementById('project-path').value.trim();
+  if (p) localStorage.setItem('ai_hub_last_project', p);
+  checkProject();
+}
+
+async function checkProject() {
+  const p = document.getElementById('project-path').value.trim();
+  const st = document.getElementById('project-status');
+  const chatLabel = document.getElementById('chat-project-label');
+  if (chatLabel) chatLabel.textContent = p;
+  st.textContent = 'กำลังตรวจสอบ...';
+  try {
+    const res = await fetch(BASE + `/api/project/info?path=${encodeURIComponent(p)}`);
+    const j = await res.json();
+    if (!j.exists) {
+      st.textContent = '❌ ไม่พบโฟลเดอร์นี้';
+      st.style.color = 'var(--danger)';
+    } else {
+      st.textContent = j.taskFile ? `✅ พบโฟลเดอร์ (มีไฟล์ ${j.taskFile})` : '✅ โฟลเดอร์ถูกต้อง';
+      st.style.color = 'var(--success)';
+      localStorage.setItem('ai_hub_last_project', p);
+      if (j.content) parseExistingTasksMarkdown(j.content);
+    }
+  } catch (e) {
+    st.textContent = 'ตรวจสอบไม่สำเร็จ';
+  }
+}
+
+function parseExistingTasksMarkdown(md) {
+  const lines = md.split('\n');
+  const tasks = [];
+  let id = 1;
+  for (const line of lines) {
+    const m = line.match(/^\s*-\s*\[([ xX])\]\s*(.+)$/);
+    if (m) {
+      const isDone = m[1].toLowerCase() === 'x';
+      const parts = m[2].split(':');
+      const title = parts[0].trim();
+      const desc = parts.slice(1).join(':').trim() || title;
+      tasks.push({ id: id++, title, description: desc, isDone, recommendedProvider: 'gemini' });
+    }
+  }
+  if (tasks.length) {
+    currentTasks = tasks;
+    renderTasksList();
+  }
+}
+
+function pickAutoProvider() {
+  const c = getQuotaLeft('claude');
+  const g = getQuotaLeft('chatgpt');
+  const m = getQuotaLeft('gemini');
+  if (m >= c && m >= g) return 'gemini';
+  if (c >= g) return 'claude';
+  return 'chatgpt';
+}
+
+async function startBrainstormAndPlan() {
+  let prompt = document.getElementById('squad-prompt').value.trim();
+  const projectPath = document.getElementById('project-path').value.trim();
+  const image = attachedImages.squad ? attachedImages.squad.dataUrl : null;
+  if (!prompt && !image) return alert('กรุณาใส่ Requirement หรือวางรูปภาพหน้าจอ (Ctrl+V)');
+  if (!prompt && image) prompt = 'ช่วยวิเคราะห์ภาพหน้าจอที่แนบมานี้ และสรุปวางแผนงานฟีเจอร์/Requirement';
+
+  const btn = document.getElementById('btn-brainstorm');
+  const icon = document.getElementById('btn-brainstorm-icon');
+  const text = document.getElementById('btn-brainstorm-text');
+  const banner = document.getElementById('stage-banner');
+  const radarGrid = document.getElementById('squad-live-grid');
+
+  btn.disabled = true;
+  icon.className = 'spinner-icon';
+  text.textContent = 'กำลังประมวลผล...';
+
+  banner.style.display = 'flex';
+  banner.className = 'stage-banner';
+  banner.innerHTML = '<span><span class="pulse-dot"></span> <b>ขั้นที่ 1:</b> สภา AI (Claude, ChatGPT, Gemini) กำลังระดมสมองวิเคราะห์ร่วมกัน...</span>';
+
+  radarGrid.style.display = 'grid';
+  for (const p of ['claude', 'chatgpt', 'gemini']) {
+    setCardBusy('squad', p, true);
+    document.getElementById(`live-card-${p}`).classList.add('active');
+    document.getElementById(`live-status-${p}`).innerHTML = '<span class="pulse-dot"></span> กำลังคิด...';
+    document.getElementById(`live-preview-${p}`).textContent = '';
+  }
+
+  // Reset & Prepare PM Synthesis Box
+  let pmSynthesisRaw = '';
+  const pmBox = document.getElementById('pm-synthesis-box');
+  const pmBadge = document.getElementById('pm-synthesis-badge');
+  const pmBody = document.getElementById('pm-synthesis-body');
+  const pmDecCont = document.getElementById('pm-decisions-container');
+  const pmDecList = document.getElementById('pm-decisions-list');
+  if (pmBox) {
+    pmBox.style.display = 'none';
+    pmBadge.className = 'res-badge';
+    pmBadge.textContent = 'รอเริ่มสังเคราะห์';
+    pmBody.textContent = '';
+    pmDecCont.style.display = 'none';
+    pmDecList.innerHTML = '';
+  }
+
+  try {
+    const res = await fetch(BASE + '/api/project/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, projectPath, image })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(block.slice(6));
+
+          if (ev.step === 'brainstorm_chunk') {
+            const p = ev.provider;
+            const prev = document.getElementById(`live-preview-${p}`);
+            prev.textContent += ev.text;
+            prev.scrollTop = prev.scrollHeight;
+          } else if (ev.step === 'brainstorm_provider_done') {
+            const p = ev.provider;
+            document.getElementById(`live-status-${p}`).textContent = 'เสร็จสิ้น ✅';
+            setCardBusy('squad', p, false);
+          } else if (ev.step === 'pm_start') {
+            banner.innerHTML = '<span><span class="pulse-dot" style="background:var(--warn)"></span> <b>ขั้นที่ 2:</b> 👑 <b>Gemini (PM)</b> กำลังสังเคราะห์ข้อเสนอและสร้าง Tasks...</span>';
+            // Mark top brainstorm cards done
+            document.getElementById('live-status-gemini').textContent = 'เสร็จสิ้น ✅';
+            setCardBusy('squad', 'gemini', true);
+
+            if (pmBox) {
+              pmBox.style.display = 'block';
+              pmBadge.className = 'res-badge running';
+              pmBadge.innerHTML = '<span class="spinner-icon"></span> กำลังวิเคราะห์ & เรียบเรียงสรุป...';
+              pmBody.innerHTML = '<span class="typing-cursor"></span>';
+            }
+          } else if (ev.step === 'pm_chunk') {
+            pmSynthesisRaw += ev.text;
+            if (pmBox) {
+              pmBody.innerHTML = formatMarkdown(pmSynthesisRaw) + '<span class="typing-cursor"></span>';
+              pmBody.scrollTop = pmBody.scrollHeight;
+            }
+          } else if (ev.step === 'plan_complete') {
+            banner.innerHTML = '<span>✅ <b>Gemini (PM)</b> สังเคราะห์แผนและบันทึกลง <code>' + (ev.tasksFile || 'TASKS.md') + '</code> เรียบร้อยแล้ว!</span>';
+            banner.className = 'stage-banner done';
+            currentTasks = ev.tasks || [];
+            
+            if (pmBox) {
+              pmBox.style.display = 'block';
+              pmBadge.className = 'res-badge done';
+              pmBadge.textContent = 'สังเคราะห์แผนและสรุปเรียบร้อย ✅';
+              pmBody.innerHTML = formatMarkdown(ev.summary || pmSynthesisRaw || 'Gemini PM ได้สรุปแผนงานและบันทึก Tasks เรียบร้อยแล้ว');
+              
+              if (ev.keyDecisions && ev.keyDecisions.length) {
+                pmDecList.innerHTML = '';
+                ev.keyDecisions.forEach(d => {
+                  const item = document.createElement('div');
+                  item.className = 'pm-decision-item';
+                  item.innerHTML = `<span class="icon">🎯</span><span>${formatMarkdown(d)}</span>`;
+                  pmDecList.appendChild(item);
+                });
+                pmDecCont.style.display = 'block';
+              } else {
+                pmDecCont.style.display = 'none';
+              }
+            }
+
+            renderTasksList();
+            for (const p of ['claude', 'chatgpt', 'gemini']) {
+              setCardBusy('squad', p, false);
+              document.getElementById(`live-card-${p}`).classList.remove('active');
+            }
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    banner.textContent = 'เกิดข้อผิดพลาด: ' + err.message;
+    for (const p of ['claude', 'chatgpt', 'gemini']) setCardBusy('squad', p, false);
+  } finally {
+    btn.disabled = false;
+    icon.className = '';
+    icon.textContent = '🧠';
+    text.textContent = 'ให้ 3 ค่ายระดมสมอง & Gemini สรุปแผน';
+  }
+}
+
+function renderTasksList() {
+  const container = document.getElementById('tasks-container');
+  const list = document.getElementById('tasks-list');
+  container.style.display = 'block';
+  list.innerHTML = '';
+
+  const bestAuto = pickAutoProvider();
+
+  currentTasks.forEach((t, idx) => {
+    const item = document.createElement('div');
+    item.className = 'task-item' + (t.isDone ? ' done' : '');
+    item.id = `task-row-${idx}`;
+
+    const autoLabel = `🤖 Auto (แนะนำ ${META[bestAuto].label} ตามโควต้า)`;
+
+    item.innerHTML = `
+      <div class="task-header">
+        <div class="task-title">
+          <input type="checkbox" ${t.isDone ? 'checked' : ''} onchange="toggleTaskDone(${idx}, this.checked, true)">
+          <span>Task ${idx + 1}: ${t.title}</span>
+        </div>
+        <span class="task-status-pill ${t.isDone ? 'done' : ''}" id="task-pill-${idx}">${t.isDone ? 'เสร็จแล้ว ✅' : 'รอทำ ⏳'}</span>
+      </div>
+      <p class="task-desc">${t.description}</p>
+      <div class="task-controls">
+        <label style="font-size:12px; color:var(--muted)">ผู้รับผิดชอบ:</label>
+        <select class="provider-select" id="task-prov-${idx}">
+          <option value="auto" selected>${autoLabel}</option>
+          <option value="gemini">🟦 Gemini (เหลือ ${getQuotaLeft('gemini').toFixed(0)}%)</option>
+          <option value="claude">🟧 Claude (เหลือ ${getQuotaLeft('claude').toFixed(0)}%)</option>
+          <option value="chatgpt">🟩 ChatGPT (เหลือ ${getQuotaLeft('chatgpt').toFixed(0)}%)</option>
+        </select>
+        <button class="btn btn-primary" id="btn-task-run-${idx}" style="font-size:12px; padding:4px 12px" onclick="runSingleTask(${idx})">
+          ${t.isDone ? '🔄 รันซ้ำ Task นี้' : '▶ สั่งทำ Task นี้'}
+        </button>
+      </div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+function toggleTaskDone(idx, checked, syncToServer = true) {
+  if (!currentTasks[idx]) return;
+  currentTasks[idx].isDone = checked;
+  const row = document.getElementById(`task-row-${idx}`);
+  const pill = document.getElementById(`task-pill-${idx}`);
+  const btn = document.getElementById(`btn-task-run-${idx}`);
+  if (row) {
+    const cb = row.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = checked;
+    if (checked) {
+      row.classList.add('done');
+      if (pill) {
+        pill.textContent = 'เสร็จแล้ว ✅';
+        pill.className = 'task-status-pill done';
+      }
+      if (btn) btn.innerHTML = '🔄 รันซ้ำ Task นี้';
+    } else {
+      row.classList.remove('done');
+      if (pill) {
+        pill.textContent = 'รอทำ ⏳';
+        pill.className = 'task-status-pill';
+      }
+      if (btn) btn.innerHTML = '▶ สั่งทำ Task นี้';
+    }
+  }
+  if (syncToServer) {
+    saveTasksToServer();
+  }
+}
+
+async function saveTasksToServer() {
+  const projectPath = document.getElementById('project-path').value.trim();
+  try {
+    await fetch(BASE + '/api/project/tasks/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tasks: currentTasks, projectPath })
+    });
+  } catch (err) {}
+}
+
+function resetAllTasks() {
+  if (!currentTasks.length) return;
+  currentTasks.forEach((_, idx) => toggleTaskDone(idx, false, false));
+  saveTasksToServer();
+}
+
+async function runSingleTask(idx) {
+  const t = currentTasks[idx];
+  const projectPath = document.getElementById('project-path').value.trim();
+  const select = document.getElementById(`task-prov-${idx}`);
+  let prov = select.value;
+  if (prov === 'auto') prov = pickAutoProvider();
+
+  const row = document.getElementById(`task-row-${idx}`);
+  const pill = document.getElementById(`task-pill-${idx}`);
+  const btn = document.getElementById(`btn-task-run-${idx}`);
+
+  row.classList.remove('done');
+  row.classList.add('running');
+  pill.innerHTML = `<span class="spinner-icon"></span> กำลังดำเนินการ (${META[prov].label})...`;
+  pill.className = 'task-status-pill running';
+  btn.innerHTML = `<span class="spinner-icon"></span> กำลังรัน...`;
+  btn.disabled = true;
+
+  setCardBusy('squad', prov, true);
+
+  const consoleBox = document.getElementById('console-output');
+  const consoleContainer = document.getElementById('console-box-container');
+  consoleContainer.style.display = 'block';
+  consoleBox.style.display = 'block';
+  consoleContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  document.getElementById('console-title').innerHTML = `💻 กำลังรัน Task ${idx + 1}: ${t.title} โดย <b>${META[prov].label}</b> <span class="spinner-icon" style="margin-left:6px"></span>`;
+  consoleBox.textContent += `\n\n========================================\n🚀 เริ่มต้น Task ${idx + 1}: ${t.title} (${META[prov].label})\n========================================\n`;
+
+  try {
+    const res = await fetch(BASE + '/api/project/run-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task: t, provider: prov, projectPath })
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(block.slice(6));
+          if (msg.type === 'start') {
+            consoleBox.textContent += `[STATUS]: ${msg.message}\n[WORKDIR]: ${projectPath || 'Current Directory'}\n----------------------------------------\n`;
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+          } else if (msg.type === 'chunk') {
+            consoleBox.textContent += msg.text;
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+          } else if (msg.type === 'done') {
+            if (msg.code === 0) {
+              toggleTaskDone(idx, true, true);
+              consoleBox.textContent += `\n\n[SUCCESS]: ✅ Task ${idx + 1} ปฏิบัติการเสร็จสมบูรณ์เรียบร้อย (Exit Code 0)\n`;
+            } else {
+              pill.textContent = `ล้มเหลว (Code ${msg.code}) ❌`;
+              pill.className = 'task-status-pill';
+              consoleBox.textContent += `\n\n[FAILED]: ❌ การทำงานสิ้นสุดด้วย Error Code ${msg.code} (ดูรายละเอียดใน Log ด้านบน)\n`;
+            }
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+          } else if (msg.type === 'error') {
+            pill.textContent = 'ผิดพลาด ❌';
+            pill.className = 'task-status-pill';
+            consoleBox.textContent += '\n[ERROR]: ' + msg.error + '\n';
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    pill.textContent = 'ผิดพลาด ❌';
+    consoleBox.textContent += '\n[ERROR]: ' + err.message;
+  } finally {
+    row.classList.remove('running');
+    btn.disabled = false;
+    setCardBusy('squad', prov, false);
+    document.getElementById('console-title').textContent = `💻 รัน Task ${idx + 1} เสร็จสิ้น`;
+  }
+}
+
+async function runAllTasks() {
+  const pending = currentTasks.filter(t => !t.isDone);
+  if (pending.length === 0 && currentTasks.length > 0) {
+    const ok = confirm('Task ทั้งหมดขึ้นสถานะว่า "เสร็จแล้ว" อยู่\nคุณต้องการสั่งรันซ้ำทุก Task อีกครั้งหรือไม่?');
+    if (!ok) return;
+    currentTasks.forEach((_, idx) => toggleTaskDone(idx, false, false));
+    await saveTasksToServer();
+  }
+  for (let i = 0; i < currentTasks.length; i++) {
+    if (!currentTasks[i].isDone) {
+      await runSingleTask(i);
+    }
+  }
+}
+
+function clearConsole() {
+  document.getElementById('console-output').textContent = '';
+}
+
+function loadProjectTasks() {
+  checkProject();
+}
+
+/* ==================== DIRECT CHAT (ARENA) LOGIC ==================== */
+let abortController = null;
+let timers = {};
+let responsesText = { claude: '', chatgpt: '', gemini: '' };
+
+function formatMarkdown(text) {
+  if (!text) return '';
+  let escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  escaped = escaped.replace(/```([\s\S]*?)```/g, (m, code) => `<pre><code>${code.trim()}</code></pre>`);
+  escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  return escaped;
+}
+
+function copyResponse(prov) {
+  const text = responsesText[prov];
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => alert('คัดลอกคำตอบแล้ว'));
+}
+
+function stopExecution() {
+  if (abortController) abortController.abort();
+  document.getElementById('btn-send').style.display = 'inline-block';
+  document.getElementById('btn-stop').style.display = 'none';
+}
+
+function toggleModelSettings() {
+  const d = document.getElementById('model-settings-drawer');
+  const btn = document.getElementById('btn-toggle-model-settings');
+  const isOpen = d.style.display !== 'none';
+  d.style.display = isOpen ? 'none' : 'block';
+  btn.className = 'shortcut-pill' + (!isOpen ? ' active preset-custom' : '');
+}
+
+function applyPreset(preset) {
+  const btnFast = document.getElementById('btn-preset-fast');
+  const btnDeep = document.getElementById('btn-preset-deep');
+  const btnCustom = document.getElementById('btn-toggle-model-settings');
+
+  if (btnFast) btnFast.className = 'shortcut-pill' + (preset === 'fast' ? ' active preset-fast' : '');
+  if (btnDeep) btnDeep.className = 'shortcut-pill' + (preset === 'deep' ? ' active preset-deep' : '');
+
+  if (preset === 'fast') {
+    document.getElementById('cfg-model-claude').value = 'claude-3-5-haiku';
+    document.getElementById('cfg-effort-claude').value = 'low';
+    document.getElementById('cfg-model-chatgpt').value = 'default';
+    document.getElementById('cfg-model-gemini').value = 'gemini-3.8-flash-low';
+    document.getElementById('cfg-effort-gemini').value = 'low';
+  } else if (preset === 'deep') {
+    document.getElementById('cfg-model-claude').value = 'default';
+    document.getElementById('cfg-effort-claude').value = 'high';
+    document.getElementById('cfg-model-chatgpt').value = 'o3-mini';
+    document.getElementById('cfg-model-gemini').value = 'default';
+    document.getElementById('cfg-effort-gemini').value = 'high';
+  }
+}
+
+function getChatOptions() {
+  return {
+    claude: {
+      model: document.getElementById('cfg-model-claude')?.value || 'default',
+      effort: document.getElementById('cfg-effort-claude')?.value || 'default'
+    },
+    chatgpt: {
+      model: document.getElementById('cfg-model-chatgpt')?.value || 'default'
+    },
+    gemini: {
+      model: document.getElementById('cfg-model-gemini')?.value || 'gemini-3.8-flash-low',
+      effort: document.getElementById('cfg-effort-gemini')?.value || 'low'
+    }
+  };
+}
+
+async function sendDirectPrompt() {
+  let prompt = document.getElementById('prompt-input').value.trim();
+  const image = attachedImages.chat ? attachedImages.chat.dataUrl : null;
+  if (!prompt && !image) return;
+  if (!prompt && image) prompt = 'ช่วยตรวจสอบ วิเคราะห์ และอธิบายหรือตอบคำถามจากภาพที่แนบมานี้';
+
+  const providers = [];
+  if (document.getElementById('check-claude').checked) providers.push('claude');
+  if (document.getElementById('check-chatgpt').checked) providers.push('chatgpt');
+  if (document.getElementById('check-gemini').checked) providers.push('gemini');
+  if (!providers.length) return alert('กรุณาเลือก AI อย่างน้อย 1 ตัว');
+
+  const btnSend = document.getElementById('btn-send');
+  const btnStop = document.getElementById('btn-stop');
+  const sendIcon = document.getElementById('btn-send-icon');
+  const sendText = document.getElementById('btn-send-text');
+
+  btnSend.style.display = 'none';
+  btnStop.style.display = 'inline-block';
+
+  const synthBox = document.getElementById('chat-synthesis-box');
+  const synthBadge = document.getElementById('chat-synthesis-badge');
+  const synthBody = document.getElementById('chat-synthesis-body');
+  if (synthBox) {
+    synthBox.style.display = 'none';
+    synthBadge.className = 'res-badge';
+    synthBadge.textContent = 'รอคำตอบ...';
+    synthBody.textContent = '';
+  }
+
+  for (const k of ['claude', 'chatgpt', 'gemini']) {
+    responsesText[k] = '';
+    const card = document.getElementById(`card-${k}`);
+    const body = document.getElementById(`body-${k}`);
+    const badge = document.getElementById(`badge-${k}`);
+    const timer = document.getElementById(`timer-${k}`);
+    if (providers.includes(k)) {
+      setCardBusy('chat', k, true);
+      card.classList.add('running');
+      body.className = 'res-body';
+      body.innerHTML = 'กำลังคิด... <span class="typing-cursor"></span>';
+      badge.innerHTML = '<span class="spinner-icon"></span> กำลังตอบ...';
+      badge.className = 'res-badge running';
+      timer.textContent = '0.0s';
+      const start = Date.now();
+      if (timers[k]) clearInterval(timers[k]);
+      timers[k] = setInterval(() => { timer.textContent = ((Date.now() - start)/1000).toFixed(1) + 's'; }, 100);
+    }
+  }
+
+  abortController = new AbortController();
+  try {
+    const projectPath = document.getElementById('project-path').value.trim();
+    const options = getChatOptions();
+    const res = await fetch(BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, providers, projectPath, options, image }),
+      signal: abortController.signal
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(block.slice(6));
+          const prov = msg.provider;
+          if (msg.type === 'chunk') {
+            responsesText[prov] += msg.text;
+            const b = document.getElementById(`body-${prov}`);
+            b.innerHTML = formatMarkdown(responsesText[prov]) + '<span class="typing-cursor"></span>';
+            b.scrollTop = b.scrollHeight;
+          } else if (msg.type === 'done') {
+            if (timers[prov]) { clearInterval(timers[prov]); timers[prov] = null; }
+            setCardBusy('chat', prov, false);
+            const card = document.getElementById(`card-${prov}`);
+            if (card) card.classList.remove('running');
+            const badge = document.getElementById(`badge-${prov}`);
+            badge.textContent = 'เสร็จสิ้น ✅';
+            badge.className = 'res-badge done';
+            const b = document.getElementById(`body-${prov}`);
+            b.innerHTML = formatMarkdown(responsesText[prov]);
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Trigger Gemini PM Synthesis if 2 or more providers responded
+    if (providers.length >= 2 && !abortController.signal.aborted) {
+      await triggerChatSynthesis(prompt, responsesText, projectPath);
+    }
+  } catch (err) {
+  } finally {
+    btnSend.style.display = 'inline-block';
+    btnStop.style.display = 'none';
+    for (const k of ['claude', 'chatgpt', 'gemini']) {
+      setCardBusy('chat', k, false);
+      const card = document.getElementById(`card-${k}`);
+      if (card) card.classList.remove('running');
+    }
+  }
+}
+
+async function triggerChatSynthesis(prompt, answers, projectPath) {
+  const synthBox = document.getElementById('chat-synthesis-box');
+  const synthBadge = document.getElementById('chat-synthesis-badge');
+  const synthBody = document.getElementById('chat-synthesis-body');
+  if (!synthBox) return;
+
+  synthBox.style.display = 'block';
+  synthBadge.className = 'res-badge running';
+  synthBadge.innerHTML = '<span class="spinner-icon"></span> 👑 Gemini PM กำลังสังเคราะห์ข้อสรุปรวม...';
+  synthBody.innerHTML = '<span class="typing-cursor"></span>';
+
+  let raw = '';
+  try {
+    const res = await fetch(BASE + '/api/chat/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, answers, projectPath }),
+      signal: abortController.signal
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const block of lines) {
+        if (!block.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(block.slice(6));
+          if (msg.text) {
+            raw += msg.text;
+            synthBody.innerHTML = formatMarkdown(raw) + '<span class="typing-cursor"></span>';
+            synthBody.scrollTop = synthBody.scrollHeight;
+          } else if (msg.done) {
+            synthBadge.className = 'res-badge done';
+            synthBadge.textContent = 'สังเคราะห์ข้อสรุปเรียบร้อย ✅';
+            synthBody.innerHTML = formatMarkdown(raw);
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {
+    if (!abortController.signal.aborted) {
+      synthBadge.className = 'res-badge';
+      synthBadge.textContent = 'สรุปไม่สำเร็จ';
+    }
+  }
+}
+
+// Initial setup
+setupPasteAndDrop('squad-prompt', 'squad');
+setupPasteAndDrop('prompt-input', 'chat');
+
+// Initial check project on load (restore last selected folder)
+const savedProject = localStorage.getItem('ai_hub_last_project');
+if (savedProject) {
+  document.getElementById('project-path').value = savedProject;
+}
+checkProject();
+applyPreset('fast', false);
+</script>
+</body>
+</html>
