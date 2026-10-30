@@ -1,0 +1,21 @@
+{
+  "project_id": "my-project",
+  "name": "My Project",
+  "allowed_providers": [
+    "claude",
+    "codex"
+  ],
+  "quality_gates": [["node", "--test"]],
+  "approval_policy": "human_required",
+  "context_scope": [
+    "src",
+    "tests",
+    "docs"
+  ],
+  "base_revision": "HEAD",
+  "auto_commit": false,
+  "center": {
+    "python": "C:/Users/spc/Documents/Project App/AI-command-center/.venv/Scripts/python.exe",
+    "cli": "C:/Users/spc/Documents/Project App/AI-command-center/smart_router.py"
+  }
+}

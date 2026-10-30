@@ -1,0 +1,17 @@
+{
+  "storage": "sqlite",
+  "global_capacity": 4,
+  "lease_seconds": 30,
+  "heartbeat_seconds": 5,
+  "worker_timeout_seconds": 900,
+  "max_attempts": 3,
+  "retry_base_seconds": 5,
+  "max_checkpoint_bytes": 10485760,
+  "max_model_context_bytes": 65536,
+  "providers": {
+    "codex": { "capacity": 2, "availability": "available", "reason": "live_implementation_and_independent_review_verified", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 },
+    "claude": { "capacity": 2, "availability": "available", "reason": "live_implementation_and_independent_review_verified", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 },
+    "google": { "capacity": 2, "availability": "unavailable", "reason": "usage_exhausted", "reset_at": "unknown", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 }
+  },
+  "live_execution": true
+}

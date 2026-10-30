@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Dev Command Center</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script defer src="/dashboard.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="eyebrow"><span class="signal"></span> LOCAL WORKSPACE · SQLITE</div><h1>AI Dev Command Center</h1><p>คิวงาน ทีม AI และการใช้งาน ในที่เดียว</p></div>
+    <div class="header-actions"><a href="#usage">Usage Meter</a><a href="#queue">คิวงาน</a><button id="refresh" type="button">อัปเดตสถานะ</button></div>
+  </header>
+  <div id="health" role="status" aria-live="polite">กำลังเชื่อมต่อ Center…</div>
+  <section class="overview" aria-label="สถานะระบบ">
+    <div class="overview-item"><span>โปรเจกต์ที่ลงทะเบียน</span><strong id="projects">—</strong></div>
+    <div class="overview-item"><span>Session ที่ครองงาน</span><strong id="sessions">—</strong></div>
+    <div class="overview-item"><span>รออนุมัติในรายการ</span><strong id="approval-count">—</strong></div>
+    <div class="overview-item"><span>การเรียก AI อัตโนมัติ</span><strong id="live">—</strong></div>
+  </section>
+
+  <section id="usage" aria-labelledby="usage-title">
+    <div class="section-heading"><div><div class="eyebrow">OBSERVED ACTIVITY</div><h2 id="usage-title">Usage Meter</h2></div><label class="window-label">ช่วงเวลา <select id="usage-window" aria-label="ช่วงเวลา Usage Meter"><option value="7">7 วันล่าสุด</option><option value="1">วันนี้</option><option value="30">30 วันล่าสุด</option></select></label></div>
+    <p class="section-note">ตัวเลขจาก CLI ที่ Center บันทึกไว้ · ไม่รวมการใช้งานนอก Center · ไม่ใช่เปอร์เซ็นต์ quota หรือยอดเรียกเก็บเงิน</p>
+    <div class="provider-grid" id="providers"></div>
+    <div class="activity-panel">
+      <div class="chart-heading"><div><h3>Token ที่บันทึกได้รายวัน</h3><p id="usage-note" class="muted">กำลังอ่านข้อมูลการใช้งาน…</p></div><div class="chart-total"><strong id="usage-total">—</strong><span>tokens ในช่วงที่เลือก</span></div></div>
+      <div class="chart-scroll"><div id="usage-chart" class="chart" aria-label="กราฟ token ที่ CLI รายงาน"></div></div>
+      <div class="chart-footer"><div class="legend"><span><i class="codex"></i>Codex</span><span><i class="claude"></i>Claude</span><span><i class="google"></i>Google</span></div><span>วันที่และเวลาประเทศไทย</span></div>
+    </div>
+    <p id="usage-source" class="muted"></p>
+  </section>
+
+  <section id="queue" aria-labelledby="queue-title">
+    <div class="section-heading"><div><div class="eyebrow">WORK IN PROGRESS</div><h2 id="queue-title">งานล่าสุด</h2></div><span class="muted">งาน mock ไม่ใช่การอนุมัติจริง</span></div>
+    <div class="table-wrap"><table><thead><tr><th>งาน</th><th>โปรเจกต์</th><th>สถานะ</th><th>ผู้รับงาน</th><th>โหมด</th><th>หลักฐาน</th></tr></thead><tbody id="tasks"></tbody></table></div>
+    <details id="detail-panel"><summary>รายละเอียดงานและหลักฐาน</summary><pre id="detail">เลือก “ดู” ในแถวงานเพื่ออ่านประวัติและหลักฐาน</pre></details>
+  </section>
+  <footer>อัปเดตทุก 5 วินาทีโดยไม่เรียก AI · เปลี่ยนงานผ่าน Center CLI · ทุกงานรอ human approval ก่อนเสมอ</footer>
+</main>
+</body>
+</html>

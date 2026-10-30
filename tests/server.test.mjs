@@ -1,0 +1,27 @@
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { createRequire } from 'node:module';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { URL } from 'node:url';
+const require = createRequire(import.meta.url);
+const state = mkdtempSync(path.join(tmpdir(), 'center-http-'));
+process.env.AI_CENTER_STATE_DIR = state;
+const testConfig = JSON.parse(readFileSync(new URL('../center.config.json', import.meta.url)));
+testConfig.live_execution = false;
+process.env.AI_CENTER_CONFIG = path.join(state, 'config.json');
+writeFileSync(process.env.AI_CENTER_CONFIG, JSON.stringify(testConfig));
+const { createServer } = require('../server.js');
+let server, base;
+beforeAll(async () => { server = createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); base = `http://127.0.0.1:${server.address().port}`; });
+afterAll(async () => { await new Promise(resolve => server.close(resolve)); if (!state.startsWith(path.resolve(tmpdir()) + path.sep)) throw new Error('Unsafe cleanup path'); rmSync(state, { recursive: true, force: true }); });
+describe('read-only Center dashboard', () => {
+  it('serves the operational dashboard', async () => { const r = await fetch(base); expect(r.status).toBe(200); expect(await r.text()).toContain('AI Dev Command Center'); });
+  it('serves the combined usage dashboard assets with a strict content policy', async () => { const r = await fetch(base); expect(await r.text()).toContain('Usage Meter'); expect(r.headers.get('content-security-policy')).not.toContain('unsafe-inline'); expect((await fetch(base + '/dashboard.js')).status).toBe(200); expect((await fetch(base + '/dashboard.css')).status).toBe(200); });
+  it('reads actual SQLite state', async () => { const r = await fetch(base + '/api/health'); expect(await r.json()).toEqual({ ok: true, storage: 'sqlite', live_execution: false }); });
+  it('reports unknown quota and exhausted Google without calls', async () => { const r = await fetch(base + '/api/usage'); const d = await r.json(); expect(d.google.reason).toBe('usage_exhausted'); expect(d.codex.quota).toBe('unknown'); });
+  it('exposes activity separately from unknown subscription quota', async () => { const r = await fetch(base + '/api/status'); const d = await r.json(); expect(d.usage.source).toBe('center_owned_cli_output'); expect(d.usage.quota).toBe('unknown'); expect(d.usage.providers.codex.days).toHaveLength(30); expect(d.usage.latest_observed_at).toBeNull(); });
+  it('blocks legacy direct execution', async () => { for (const route of ['/api/chat', '/api/chat/synthesize', '/api/project/run-task', '/api/config']) { const r = await fetch(base + route, { method: 'POST', body: '{}' }); expect(r.status).toBe(410); } });
+  it('rejects foreign origins and unknown routes', async () => { expect((await fetch(base + '/api/status', { headers: { Origin: 'https://external.invalid' } })).status).toBe(403); expect((await fetch(base + '/api/browse')).status).toBe(404); });
+  it('does not expose files or credentials', async () => { for (const route of ['/.env', '/server.js', '/.git/config']) expect((await fetch(base + route)).status).toBe(404); });
+});

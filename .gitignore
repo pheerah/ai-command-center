@@ -8,6 +8,8 @@ __pycache__/
 *.py[cod]
 .maestro-runs/
 .maestro-cache/
+.worktrees/
+.ai-team/
 *.sqlite
 *.sqlite3
 *.db
@@ -15,4 +17,7 @@ __pycache__/
 /coverage/
 /playwright-report/
 /test-results/
+/sandbox/runs/
+/sandbox/sample-project-a/
+/sandbox/sample-project-b/
 /playwright/.cache/
