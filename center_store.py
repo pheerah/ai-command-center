@@ -18,15 +18,15 @@ def now():
 TRANSITIONS = {
     "queued": {"assigned", "blocked", "cancelled"},
     "retry_wait": {"assigned", "blocked", "cancelled"},
-    "assigned": {"running", "blocked", "cancelled"},
+    "assigned": {"running", "retry_wait", "blocked", "cancelled"},
     "running": {"implementation_done", "retry_wait", "blocked", "failed", "cancelled"},
     "implementation_done": {"gates", "blocked", "cancelled"},
     "gates": {"waiting_for_independent_review", "failed", "blocked", "cancelled"},
-    "waiting_for_independent_review": {"review", "gates", "blocked", "cancelled"},
+    "waiting_for_independent_review": {"review", "gates", "ready_for_human_approval", "blocked", "cancelled"},
     "review": {"ready_for_human_approval", "waiting_for_independent_review", "failed", "blocked", "cancelled"},
     "ready_for_human_approval": {"approved", "waiting_for_independent_review", "cancelled"},
     "blocked": {"queued", "gates", "waiting_for_independent_review", "cancelled"},
-    "failed": {"queued", "gates", "waiting_for_independent_review", "cancelled"},
+    "failed": {"queued", "gates", "waiting_for_independent_review", "blocked", "cancelled"},
     "cancelled": set(), "approved": set(),
 }
 

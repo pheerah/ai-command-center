@@ -17,6 +17,9 @@ from pathlib import Path
 from center_process import worker_env
 from center_workspace import inside, safe_relative, sensitive
 from center_context import apply_edits
+from center_errors import classify_error, classify_failure  # noqa: F401  (re-exported for existing callers)
+
+LOG_TAIL_BYTES = 1048576
 
 
 def write_json(path, data):
@@ -28,6 +31,11 @@ def write_json(path, data):
 
 def cli_command(provider):
     """Resolve Windows npm shims without cmd.exe shell interpolation."""
+    if provider == "google":
+        agy = shutil.which("agy.exe") or shutil.which("agy")
+        if agy and Path(agy).suffix.lower() not in (".cmd", ".bat", ".ps1"):
+            return [agy]
+        raise ValueError("Provider CLI unavailable; install its subscription CLI first")
     if os.name == "nt":
         npm = Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules"
         package = npm / ("@openai/codex/bin/codex.js" if provider == "codex" else "@anthropic-ai/claude-code/cli.js")
@@ -49,17 +57,11 @@ def cli_command(provider):
     raise ValueError("Provider CLI unavailable; install its subscription CLI first")
 
 
-def classify_error(text):
-    value = text.lower()
-    if any(x in value for x in ("unauthorized", "not logged in", "authentication", "invalid api key", "401", "403")):
-        return "auth"
-    if any(x in value for x in ("invalid model", "model not found", "unknown model", "unsupported model")):
-        return "invalid_model"
-    if any(x in value for x in ("quota", "usage limit", "rate limit", "429", "usage_exhausted", "hit your limit", "hit the limit")):
-        return "rate_limit"
-    if any(x in value for x in ("unknown option", "unrecognized argument", "invalid configuration", "permission denied")):
-        return "config"
-    return "worker_failure"
+def log_tail(path, limit=LOG_TAIL_BYTES):
+    with Path(path).open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, handle.tell() - limit))
+        return handle.read().decode("utf-8", errors="replace")
 
 
 def main():
@@ -88,8 +90,8 @@ def main():
                    "base_rev": request["base_rev"], "patch_hash": request.get("patch_hash")}
         write_json(result, payload)
         return 1 if error else 0
-    if request["adapter"] != "live" or request["provider"] not in ("codex", "claude"):
-        raise ValueError("Unsupported live adapter; Google requires explicit IDE handoff")
+    if request["adapter"] != "live" or request["provider"] not in ("codex", "claude", "google"):
+        raise ValueError("Unsupported live adapter")
     role = request["role"]
     properties = {'task_id': {'type': 'string'}, 'base_rev': {'type': 'string'}, 'summary': {'type': 'string'}}
     if role == 'review':
@@ -110,6 +112,16 @@ def main():
     if request["provider"] == "codex":
         command += ["exec", "--ignore-user-config", "--sandbox", "read-only",
                     "--output-schema", str(schema_path), "--output-last-message", str(final), "--json", "--color", "never", "-"]
+    elif request["provider"] == "google":
+        # agy takes the prompt as an argument and cannot prompt for permissions headlessly, so no shell commands are allowed:
+        # send the task inline (short enough for the Windows command line) and tell it Center runs the gates.
+        notice = ("You cannot run shell commands in this session; do not try. Use only file viewing/search and file editing tools. "
+                  "Center runs the tests and gates after you finish. Your final answer must be only the JSON object the task asks for.")
+        full = notice + " " + prompt
+        if len(full) > 20000:
+            raise ValueError("Task prompt too large for the Google adapter; narrow the task scope")
+        command += ["--output-format", "json", "--mode", "plan" if role == "review" else "accept-edits",
+                    "--json-schema", str(schema_path), "--add-dir", str(directory), "--print=" + full]
     else:
         tools = "Read,Glob,Grep" if role == "review" else "Read,Glob,Grep,Edit,Write"
         command += ["--print", "--restricted", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
@@ -119,12 +131,24 @@ def main():
             command += ['--add-dir', str(directory)]
     if request.get("model"):
         command += ["--model", request["model"]]
+    effort = request.get("effort")
+    if effort and request["provider"] == "codex":
+        command[command.index("exec") + 1:command.index("exec") + 1] = ["-c", f'model_reasoning_effort="{effort}"']
+    elif effort and request["provider"] == "claude":
+        command += ["--effort", effort]
     # No API credentials are injected; the CLI manages its own existing login.
     with (directory / "provider.log").open("wb") as out:
-        proc = subprocess.run(command, input=prompt.encode(), stdout=out, stderr=subprocess.STDOUT, env=worker_env(), check=False)
+        # agy prints diagnostics on stderr; keep them out of the JSON envelope.
+        stderr = (directory / "provider.err").open("wb") if request["provider"] == "google" else subprocess.STDOUT
+        try:
+            proc = subprocess.run(command, input=None if request["provider"] == "google" else prompt.encode(), stdout=out, stderr=stderr,
+                                  stdin=subprocess.DEVNULL if request["provider"] == "google" else None, env=worker_env(), check=False)
+        finally:
+            if stderr is not subprocess.STDOUT:
+                stderr.close()
     if proc.returncode:
-        tail = (directory / "provider.log").read_bytes()[-16000:].decode("utf-8", errors="replace")
-        write_json(result, {"error": classify_error(tail), "simulated": False})
+        # Classify from JSON envelopes/log records; the log itself never leaves the worker.
+        write_json(result, {"error": classify_error(log_tail(directory / "provider.log")), "simulated": False})
         return proc.returncode
     if request["provider"] == "codex":
         payload = json.loads(final.read_text(encoding="utf-8"))
@@ -139,15 +163,28 @@ def main():
         payload['provider_session_ref'] = next((o.get('thread_id') for o in observations if o.get('type') == 'thread.started'), None)
         payload['models_observed'] = sorted({o['model'] for o in observations if isinstance(o.get('model'), str)})
     else:
-        envelope = json.loads((directory / "provider.log").read_text(encoding="utf-8"))
-        if envelope.get("is_error"):
-            write_json(result, {"error": classify_error(str(envelope.get('result', ''))), "simulated": False})
+        raw = (directory / "provider.log").read_text(encoding="utf-8")
+        envelope = json.loads(raw)
+        if request["provider"] == "google":
+            if envelope.get("status") != "SUCCESS":
+                write_json(result, {"error": classify_error(raw), "simulated": False})
+                return 1
+            payload = envelope.get("structured_output")
+            if not isinstance(payload, dict):
+                write_json(result, {"error": "provider_blocked", "simulated": False, "summary": "no structured output"})
+                return 1
+            payload["provider_session_ref"] = envelope.get("conversation_id")
+            payload["models_observed"] = [request["model"]] if request.get("model") else []
+        elif envelope.get("is_error"):
+            # Whole envelope, so structured status fields and quota text are both seen.
+            write_json(result, {"error": classify_error(raw), "simulated": False})
             return 1
-        payload = envelope.get("structured_output")
-        if not isinstance(payload, dict):
-            payload = json.loads(envelope.get("result", "{}"))
-        payload['provider_session_ref'] = envelope.get('session_id')
-        payload['models_observed'] = list(envelope.get('modelUsage', {}))
+        if request["provider"] != "google":
+            payload = envelope.get("structured_output")
+            if not isinstance(payload, dict):
+                payload = json.loads(envelope.get("result", "{}"))
+            payload['provider_session_ref'] = envelope.get('session_id')
+            payload['models_observed'] = list(envelope.get('modelUsage', {}))
     if role == 'implementation':
         if payload.get('status') != 'completed':
             write_json(result, {'error': 'provider_blocked', 'simulated': False, 'provider_session_ref': payload.get('provider_session_ref'), 'summary': payload.get('summary')})

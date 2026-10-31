@@ -9,9 +9,197 @@
   "max_checkpoint_bytes": 10485760,
   "max_model_context_bytes": 65536,
   "providers": {
-    "codex": { "capacity": 2, "availability": "available", "reason": "live_implementation_and_independent_review_verified", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 },
-    "claude": { "capacity": 2, "availability": "available", "reason": "live_implementation_and_independent_review_verified", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 },
-    "google": { "capacity": 2, "availability": "unavailable", "reason": "usage_exhausted", "reset_at": "unknown", "entitlement": "subscription", "roles": ["implementation", "review"], "max_complexity": 5 }
+    "codex": {
+      "capacity": 2,
+      "availability": "available",
+      "reason": "live_implementation_and_independent_review_verified",
+      "entitlement": "subscription",
+      "roles": [
+        "implementation",
+        "review"
+      ],
+      "max_complexity": 5,
+      "models": [
+        {
+          "id": "gpt-6-luna",
+          "tier": "light",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "gpt-6-sol",
+          "tier": "standard",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-6.1-sol",
+          "tier": "heavy",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ]
+    },
+    "claude": {
+      "capacity": 2,
+      "availability": "available",
+      "reason": "live_implementation_and_independent_review_verified",
+      "entitlement": "subscription",
+      "roles": [
+        "implementation",
+        "review"
+      ],
+      "max_complexity": 5,
+      "models": [
+        {
+          "id": "claude-haiku-5-5",
+          "tier": "light",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "claude-sonnet-5-5",
+          "tier": "standard",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "claude-opus-5-5",
+          "tier": "heavy",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    },
+    "google": {
+      "capacity": 2,
+      "availability": "available",
+      "reason": "agy_headless_adapter_live_verified_implementation_with_independent_review",
+      "entitlement": "subscription",
+      "roles": [
+        "implementation",
+        "review"
+      ],
+      "max_complexity": 5,
+      "models": [
+        {
+          "id": "gemini-3.8-flash-low",
+          "tier": "light",
+          "efforts": [],
+          "quota_group": "Gemini Models"
+        },
+        {
+          "id": "gemini-3.8-flash-medium",
+          "tier": "standard",
+          "efforts": [],
+          "quota_group": "Gemini Models"
+        },
+        {
+          "id": "gemini-3.8-flash-high",
+          "tier": "heavy",
+          "efforts": [],
+          "quota_group": "Gemini Models"
+        }
+      ]
+    }
   },
-  "live_execution": true
+  "live_execution": true,
+  "quota_routing": true,
+  "skills": {
+    "systematic-debugging": {
+      "roles": [
+        "implementation"
+      ],
+      "kinds": [
+        "bugfix"
+      ],
+      "instruction": "Reproduce the failure first, form one hypothesis at a time, find the root cause before changing code, add a regression test, then make the smallest fix. Do not patch symptoms."
+    },
+    "test-driven-development": {
+      "roles": [
+        "implementation"
+      ],
+      "kinds": [
+        "feature",
+        "test"
+      ],
+      "instruction": "Write or extend a failing test for each acceptance criterion first, then the minimal code to pass it, then tidy. Keep changes inside the task scope and keep existing tests green."
+    },
+    "safe-refactoring": {
+      "roles": [
+        "implementation"
+      ],
+      "kinds": [
+        "refactor"
+      ],
+      "instruction": "Preserve behavior exactly. Make small mechanical steps, keep tests passing after each, avoid unrelated edits and public API changes unless the task requires them."
+    },
+    "concise-documentation": {
+      "roles": [
+        "implementation"
+      ],
+      "kinds": [
+        "docs"
+      ],
+      "instruction": "Document only what the code really does, verified against the source. Prefer short examples that run, no speculation, no marketing language."
+    },
+    "security-hardening": {
+      "roles": [
+        "implementation",
+        "review"
+      ],
+      "kinds": [
+        "security"
+      ],
+      "instruction": "Treat all input as untrusted. Check authentication, authorization, injection, secret handling and error leakage. Never log or return credentials. Prefer deny-by-default."
+    },
+    "independent-code-review": {
+      "roles": [
+        "review"
+      ],
+      "kinds": [
+        "any"
+      ],
+      "instruction": "Review the full scoped patch and new files against every acceptance criterion. Look for correctness bugs, missing edge cases, scope creep and missing tests. Do not edit files. Reject with concrete reasons when criteria are unmet; approve only when you verified them."
+    }
+  },
+  "auto_retry": true,
+  "ide_reserved_sessions": 1,
+  "quota_floor": {
+    "five_hour": 10,
+    "weekly": 15
+  },
+  "codex_context_guard": true
 }

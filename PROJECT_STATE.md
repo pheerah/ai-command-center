@@ -65,6 +65,42 @@
 - ผ่าน usage parser 7 tests, API 8 tests, browser 4 tests รวมถึง responsive/ช่วงเวลา/error state; lint/build ผ่าน ตรวจภาพหน้าจอจริงทั้ง desktop/mobile แล้ว
 - รอบ UI นี้ไม่ได้ส่ง source ให้ผู้ตรวจโมเดลเพิ่มเติม และไม่มี human approval/commit/push; scheduler เดิมไม่เปลี่ยน dashboard server โหลด source ใหม่แล้ว
 
+## เปลี่ยน IDE เป็น Claude Code (31 ต.ค. 2026)
+
+- ช่องทางสั่งงานหลักเปลี่ยนจาก Antigravity เป็น VS Code Claude Code ของแต่ละโปรเจกต์ ใช้ `scripts/install_project.py` และ template `connector-template/CLAUDE.md` + `.claude/skills/ai-command-center` (แทน `.agents/`)
+- พิสูจน์แล้วใน sample แยก state: Claude Code handoff จริง + heartbeat จาก watcher + gates + Codex review จริง → ready_for_human_approval ยังไม่ได้ทดสอบ failure scenarios ด้วยมือ (Center ติดต่อไม่ได้, lease loss, cancellation) และยังไม่ได้ติดตั้งลงโปรเจกต์จริง
+- Dashboard มี `/api/quota` อ่าน quota 5 ชม./รายสัปดาห์สดของ Codex (session log), Claude (เรียก CLI ของ Claude เองแล้วอ่าน rate_limit_event) และ Google (`RetrieveUserQuotaSummary` ของ Antigravity language server ในเครื่อง ใช้ได้เมื่อ Antigravity เปิดอยู่) การ์ด Codex แสดงเป็น ChatGPT
+- Google เปิดเป็น available แล้ว (adapter `agy` headless, ผ่าน live: Google เขียน → gates → Codex ตรวจอิสระ → ready_for_human_approval ใน state แยก) Google เป็นผู้ตรวจยังไม่ได้ทดสอบ
+- Center เลือก provider ตาม quota จริง, model ตามแคตตาล็อกจริง, effort ตามความซับซ้อน/quota และ skill ตามชนิดงาน ดู README หัวข้อ "Center เลือกเอง" ทดสอบ failure scenarios ด้วยมือแล้วใน sample แยก: Center ติดต่อไม่ได้ → blocked, lease หลุด → watcher หยุดแก้ไฟล์, ยกเลิก → slot ถูกกันไว้จน worker-stopped
+- เพิ่ม `--hold-for-ide` เพราะ scheduler หยิบงาน live ที่ submit ไปรันเองทันที (เจอระหว่างทดสอบ) โหมดนี้ใช้ได้เฉพาะ connector แบบไฟล์ (`connector_local.py`, ผู้ดูแล Center เท่านั้น)
+- **API สำหรับโปรเจกต์อื่น (/api/v1)** พร้อมแล้ว: token ต่อโปรเจกต์, connector HTTP, ตัวติดตั้งที่ไม่ส่ง path ของ Center ให้โปรเจกต์ ดู README หัวข้อ API ทดสอบ end-to-end จริงใน sample แยก: Center เลือก Codex (gpt-6-luna, effort low, skill TDD) เขียน, Claude (haiku, low) ตรวจอิสระ, gates ผ่าน, `patch` ส่งออกได้, `apply` ปฏิเสธก่อนอนุมัติ และเขียนไฟล์ได้เมื่อ (จำลองใน sandbox เท่านั้น) สถานะ approved
+- **Usage meter เป็นของ Python ที่เดียว** (`center_quota.py` → `quota-last.json`) เลิกอ่าน `~/.claude/.credentials.json` หลังรอบตรวจพบว่าขัดกับกฎ no-credential-reading
+- ผลตรวจรอบสองจาก 3 AI (Claude, Google, Codex) ที่ใช้แก้: build.js ขาดโมดูลใหม่, เปิดเผย patch_hash, lockout ข้ามโปรเจกต์, ไม่มีเพดานโหลด/งานซ้ำ, ตรวจ checkpoint ก่อน export, path ใน apply, token store race, ตัวติดตั้งรับ root ที่ซ้อนกับ Center ข้อที่ปฏิเสธเพราะขัดกับหลักฐาน: Google ว่า adapter agy เสีย (ทดสอบ live ผ่านแล้ว ไฟล์ agy เป็น .exe จริง และรุ่น model มาจาก `agy models`)
+
+## ให้ Google เขียน / Codex ตรวจ ผ่าน Center เอง (31 ต.ค. 2026)
+
+- ใช้ Center สร้างงานจริงใน repo สำเนาแยก (นอกโฟลเดอร์ Center) ให้ Google เขียน `scripts/autostart.py` + test และ test ยกเลิกงานที่ตัวรันตาย รอบแรก Codex (gpt-6-sol, effort medium) ตรวจเจอข้อผิดพลาดจริงในโค้ดของ Google และปฏิเสธ รอบที่สอง gate ล้มด้วย test ที่ Google เขียนเอง (ไม่ผ่านขั้นตรวจ) ผมจึงรับร่างมาแก้เองแล้วรัน test ผ่าน ไม่ได้ผ่านขั้น independent review ครบวงจรสำหรับเวอร์ชันที่ลงในรีโป
+- ข้อค้นพบที่แก้แล้ว: โมเดล `claude-opus-4-6-thinking` ผ่าน agy ใน headless พยายามรัน command ที่ถูกปฏิเสธแล้วจบเทิร์นโดยไม่มีผลลัพธ์ จึงถอนออกจากแคตตาล็อก Google (เหลือ Gemini 3 ระดับ) และการเลือก skill เคยตัดสินจากคำทั่วไปใน prompt ตอนนี้ดูชื่อเรื่องก่อน
+- ผลวิเคราะห์ cancel กับ owner ที่ตายแล้ว: `recover()` ปิดงานให้หลัง lease หมดอายุ (≤ lease_seconds) ไม่ใช่ทันที (test `expectedFailure` บันทึกไว้เป็นพฤติกรรมตามดีไซน์ และมี test ที่ผ่านสำหรับกรณี lease หมด)
+- ข้อจำกัดของการ host ตัวเอง: test ชุดเดิมของ Center คัดลอก `.git/objects` จากราก repo จึงรันใน worktree ของ Center ไม่ได้ ต้อง gate ด้วยไฟล์ test ที่ไม่ใช้ fixture นี้
+
+## ปิดช่องว่างจาก Audit (31 ต.ค. 2026) — แบ่งงานให้ ChatGPT/Google
+
+คำตอบผู้ใช้: ใช้ hooks ระดับโปรเจกต์, ผู้ใช้ยืนยัน Google ใน config, สำรองจำนวน session ของ IDE ใน config
+
+| ช่องว่างใน Audit | สถานะตอนนี้ | ใครทำ |
+|---|---|---|
+| บังคับไม่ให้ Claude Code แก้ checkout เอง | Hook ติดตั้งอัตโนมัติ ทดสอบกับ Claude Code CLI จริง (`scripts/claude_acceptance.py`); ส่วนขยาย VS Code ยังต้องลองมือ | Google เขียนร่าง (ผ่าน Center, Codex ตรวจปฏิเสธรอบแรก) ผมเพิ่มการป้องกันไฟล์ควบคุม/fail-closed/anchor ตามตำแหน่งติดตั้ง หลัง Codex ตรวจรอบสอง |
+| ยืนยัน Google เป็น subscription | ต้อง attest ใน terminal ก่อนเรียก Google (Google จึงถูกบล็อกจนกว่าผู้ใช้ attest) | ผม |
+| นับ session ของ Claude Code | `ide_reserved_sessions` หักจากความจุ + แสดงว่านับ session นอก Center ไม่ได้ | ChatGPT (Codex) เขียนโมดูล `center_capacity.py` Google ตรวจอนุมัติ; Codex ร่างชุดแก้ผสานเข้า runtime ผมใช้และทดสอบ |
+| gate ล้ม/review ปฏิเสธแล้วทำซ้ำเอง | `auto_retry` มี test (ไม่ retry error สิทธิ์, evidence เสียไม่ล้มทั้งชุด) | ผม ตามข้อติของ Codex |
+| ไม่มี test เชิงลบเรื่อง commit/push | `tests/test_no_git_actions.py` (static AST) | ผม |
+| gate preset | `scripts/gate_presets.py` + `--detect-gates` | Google เขียน Codex ปฏิเสธ 2 รอบ ผมแก้ตามข้อติ |
+
+บทเรียนจากการแบ่งงาน: ผู้ตรวจ Codex เจอข้อบกพร่องจริงในงานของ Google ทุกชิ้น (3 จาก 3) Google เป็นผู้ตรวจครั้งแรกอนุมัติงานของ Codex ใน 1 รอบ ซึ่งยังไม่พอสรุปว่า Google ตรวจเข้มพอ Codex ผ่าน Center แก้ไฟล์ใหญ่ (เช่น `center_runtime.py`) ไม่ได้เพราะเกินขนาด context และ sandbox ฝั่ง Windows ไม่ให้เขียนไฟล์ จึงใช้แบบร่างชุดแก้ที่ผมตรวจและใช้เอง
+
+ยังเปิดอยู่: ทดสอบ hook กับส่วนขยาย VS Code จริง, Bash guard ยังเป็น heuristic, การ attest/อนุมัติใช้ TTY ซึ่ง agent บนเครื่องเดียวกันเลียนแบบได้, ยังไม่ได้ติดตั้งลงโปรเจกต์จริง, ยังไม่ได้ commit, adaptive concurrency ตาม RAM/CPU ยังไม่ได้ทำ (ผู้ใช้เลือกแค่การสำรองจำนวน)
+
 ## Antigravity / ขอบเขตที่ยังไม่อ้างว่าพิสูจน์แล้ว
 
 - ตรวจเอกสารทางการปัจจุบันและ `agy --help` แบบไม่เรียกโมเดลแล้ว `.agents/rules/*.md` มี trigger=always_on; skills มี name/description และตำแหน่งตรง discovery format

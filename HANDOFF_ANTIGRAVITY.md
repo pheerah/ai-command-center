@@ -1,3 +1,5 @@
+> **หมายเหตุ 31 ต.ค. 2026:** ช่องทางสั่งงานหลักเปลี่ยนเป็น Claude Code แล้ว ดู README หัวข้อ Claude Code (VS Code) handoff เอกสารนี้เก็บไว้เป็นประวัติของแนว Antigravity
+
 # รับช่วงเมื่อ Google พร้อม
 
 Google ยังคง unavailable / usage_exhausted / reset unknown ห้ามทดลองเรียกซ้ำหรือเปลี่ยนบัญชีเพื่อหลบ quota
@@ -29,3 +31,12 @@ task/project ID, provider/model/session refs, attempt/worktree/base revision, ch
 เอกสารที่ตรวจระหว่างพัฒนา: [Codex noninteractive](https://learn.chatgpt.com/docs/non-interactive-mode), [Claude CLI](https://code.claude.com/docs/en/cli-reference), [Maestro upstream](https://github.com/tiagojcperez/maestro-cli)
 
 ตรวจ discovery format กับ [Antigravity Rules](https://antigravity.google/docs/rules/) และ [Skills](https://antigravity.google/docs/skills) แล้ว `.agents/rules/*.md` ของ template มี YAML trigger=always_on และ skill มี name/description ถูกต้อง มี local connector check กับ task จริงที่เสร็จแล้ว โดยไม่ได้เรียก Google model หรือแก้ global settings
+
+
+## ชุดพร้อมลองหลัง reset — รอบปรับปรุงล่าสุด
+
+ใช้ `sandbox/runs/antigravity-fb3e09d6/CHECKLIST.md` และ `run.json` task `c33cd247c2c6` ใน state แยก หรือสร้างใหม่ด้วย `scripts/antigravity_acceptance.py prepare` เมื่อ paths/โค้ดเปลี่ยน เตรียมแล้วไม่มี model calls และ Google ยัง unavailable อย่าเปลี่ยนสถานะ Center หลักเพื่อทดลอง
+
+connector health ตรวจ scheduler live และ project registration จริงแล้ว watcher แยกจบงานปกติจาก lease loss และเก็บ heartbeat evidence ครั้งแรกใน audit trail config ของ sample ใช้ state/config แยก และเปิด async_handoff_gates เพื่อคืนผลให้ IDE ก่อนรัน gates เบื้องหลัง มี port reservation + gate environment ที่ทดสอบกับสอง local servers พร้อมกันแล้ว
+
+คำสั่ง check ตรวจ actual handoff Google + worker-start/session ref + deterministic heartbeat + gates + independent provider review บน patch ปัจจุบัน ไม่ใช้ mock แทน actual IDE และยังรายงาน pending_manual_failure_scenarios จนผู้ใช้ยืนยัน Center-unreachable, lease-loss stop และ cancellation/worker-stopped แยกต่างหาก ห้าม agent ทำ human-review/approve แทนผู้ใช้

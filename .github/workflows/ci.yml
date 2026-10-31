@@ -1,0 +1,57 @@
+name: Deterministic checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Only mock orchestration, local HTTP, and synthetic parser fixtures run.
+      # No provider CLI, subscription login, secrets, or live smoke is installed.
+      CI: 'true'
+      PLAYWRIGHT_BROWSERS_PATH: .ai-team/browsers
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Prepare Python dependencies
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare JavaScript dependencies
+        run: npm ci
+      - name: Python regression tests
+        run: npm run test:python
+      - name: API tests
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Install test browser
+        run: npx playwright install chromium
+      - name: Browser checks
+        run: npm run test:e2e

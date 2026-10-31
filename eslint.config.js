@@ -3,15 +3,16 @@ const js = require('@eslint/js');
 module.exports = [
   { ignores: ['dist/**', 'node_modules/**', '.worktrees/**', '.ai-team/**'] },
   js.configs.recommended,
-  { files: ['dashboard.js'], languageOptions: { globals: { document: 'readonly', fetch: 'readonly', setInterval: 'readonly' } } },
+  { files: ['dashboard.js'], languageOptions: { globals: { document: 'readonly', fetch: 'readonly', setInterval: 'readonly', Option: 'readonly', history: 'readonly', location: 'readonly', localStorage: 'readonly', window: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } } },
   { files: ['tests/e2e/**/*.js'], languageOptions: { globals: { document: 'readonly', window: 'readonly' } } },
-  { files: ['**/*.mjs'], languageOptions: { globals: { process: 'readonly', fetch: 'readonly' } } },
+  { files: ['**/*.mjs'], languageOptions: { globals: { process: 'readonly', fetch: 'readonly', setTimeout: 'readonly' } } },
   {
     files: ['server.js', 'scripts/**/*.js', 'tests/**/*.js', '*.config.cjs', '*.config.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'commonjs',
       globals: {
+        AbortSignal: 'readonly',
         Buffer: 'readonly',
         console: 'readonly',
         exports: 'readonly',

@@ -31,17 +31,19 @@ def parse_usage(provider, text):
         if provider == 'claude' and row.get('type') != 'result':
             continue
         usage = row.get('usage')
-        if provider not in ('codex', 'claude') or not isinstance(usage, dict):
+        if provider not in ('codex', 'claude', 'google') or not isinstance(usage, dict):
+            continue
+        if provider == 'google' and row.get('status') != 'SUCCESS':
             continue
         incoming, outgoing = counter(usage.get('input_tokens')), counter(usage.get('output_tokens'))
         if incoming is None or outgoing is None:
             continue
-        cache_read = counter(usage.get('cached_input_tokens' if provider == 'codex' else 'cache_read_input_tokens', 0))
+        cache_read = counter(usage.get({'codex': 'cached_input_tokens', 'google': 'cache_read_tokens'}.get(provider, 'cache_read_input_tokens'), 0))
         cache_write = counter(usage.get('cache_write_input_tokens' if provider == 'codex' else 'cache_creation_input_tokens', 0))
         if cache_read is None or cache_write is None:
             continue
-        if provider == 'codex':
-            # Codex cache counts are subsets of total input, not extra tokens.
+        if provider in ('codex', 'google'):
+            # Codex/agy cache counts are subsets of total input, not extra tokens.
             if cache_read + cache_write > incoming:
                 continue
         else:

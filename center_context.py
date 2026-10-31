@@ -7,6 +7,95 @@ from pathlib import Path
 from center_workspace import EXCLUDED, canonical, in_scope, inside, safe_relative, sensitive
 
 
+def source_bytes(root, base_rev, scope, read_set=None):
+    """Bytes of source the Codex adapter would have to put in its prompt for this scope at base_rev.
+
+    Counts tracked files under the scope entries (or only the explicit read_set), skipping what read_sources skips
+    (excluded directories, sensitive names). Returns None when git cannot tell, so unknown size never excludes a provider.
+    """
+    from center_workspace import git
+    names = None if read_set is None else {safe_relative(n) for n in read_set}
+    listing = git(root, 'ls-tree', '-r', '-l', '-z', base_rev, '--', *[safe_relative(item) for item in scope], binary=True)
+    total = 0
+    for entry in listing.split(chr(0).encode()):
+        if not entry:
+            continue
+        meta, _, path = entry.decode('utf-8', errors='replace').partition(chr(9))
+        parts = meta.split()
+        if len(parts) < 4 or not parts[3].isdigit():
+            continue
+        if any(p in EXCLUDED for p in Path(path).parts) or sensitive(path) or (names is not None and path not in names):
+            continue
+        total += int(parts[3])
+    return total
+
+
+def read_policy(worktree, scope, limit=16384, base_rev=None):
+    """Resolve small project-owned instruction files consistently for both CLIs."""
+    root = canonical(worktree)
+    if base_rev:
+        from center_workspace import git
+        files, consumed = [], 0
+        names = git(root, 'ls-tree', '-r', '--name-only', '-z', base_rev).split('\0')
+        for name in sorted(filter(None, names)):
+            directory = Path(name).parent.as_posix()
+            applicable = directory == '.' or any(in_scope(name, [item]) or item.startswith(directory + '/') for item in scope)
+            rule = name.startswith('.agents/rules/') and Path(name).suffix == '.md'
+            if not (rule or applicable and Path(name).name in ('AGENTS.md', 'CLAUDE.md', 'GEMINI.md')):
+                continue
+            safe_relative(name)
+            if sensitive(name):
+                continue
+            mode = git(root, 'ls-tree', base_rev, '--', name).split(' ', 1)[0]
+            if mode not in ('100644', '100755'):
+                raise ValueError('Unsafe base policy file mode')
+            if consumed + int(git(root, 'cat-file', '-s', base_rev + ':' + name)) > limit:
+                raise ValueError('Project policy context exceeds limit')
+            raw = git(root, 'show', base_rev + ':' + name, binary=True)
+            consumed += len(raw)
+            if consumed > limit:
+                raise ValueError('Project policy context exceeds limit')
+            files.append({'path': name, 'sha256': hashlib.sha256(raw).hexdigest(), 'content': raw.decode('utf-8')})
+        return {'files': files, 'base_rev': base_rev, 'sha256': hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
+    directories = {root}
+    for name in scope:
+        p = root / safe_relative(name)
+        p = p if p.is_dir() else p.parent
+        if p.is_dir():
+            import os
+            for directory, dirs, _files in os.walk(p, followlinks=False):
+                dirs[:] = [name for name in dirs if name not in EXCLUDED and name.lower() not in ('.claude', '.codex', '.ssh', '.aws')]
+                if not inside(directory, root):
+                    raise ValueError('Unsafe nested project policy directory')
+                directories.add(Path(directory))
+        while inside(p, root):
+            directories.add(p)
+            if p == root:
+                break
+            p = p.parent
+    paths = {directory / filename for directory in directories for filename in ('AGENTS.md', 'CLAUDE.md', 'GEMINI.md')}
+    rules = root / '.agents' / 'rules'
+    if rules.is_dir() and not rules.is_symlink():
+        paths.update(rules.glob('*.md'))
+    files, consumed = [], 0
+    for path in sorted(paths):
+        if not path.exists():
+            continue
+        if sensitive(path.relative_to(root).as_posix()):
+            raise ValueError('Sensitive project policy path')
+        if path.is_symlink() or not inside(path, root) or not path.is_file():
+            raise ValueError('Unsafe project policy path')
+        if path.stat().st_size + consumed > limit:
+            raise ValueError('Project policy context exceeds limit; narrow policy')
+        with path.open('rb') as stream:
+            raw = stream.read(limit - consumed + 1)
+        consumed += len(raw)
+        if consumed > limit:
+            raise ValueError('Project policy context exceeds limit')
+        files.append({'path': path.relative_to(root).as_posix(), 'sha256': hashlib.sha256(raw).hexdigest(), 'content': raw.decode('utf-8')})
+    return {'files': files, 'sha256': hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
+
+
 def read_sources(worktree, scope, limit=65536, names=None):
     root = canonical(worktree)
     selected = set()

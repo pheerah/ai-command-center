@@ -144,7 +144,7 @@ def restore(root, saved, expected_base):
             shutil.copyfile(source, target)
 
 
-def ensure_worktree(task, project, worktree_root):
+def ensure_worktree(task, project, worktree_root, restore_checkpoint=True):
     expected = canonical(worktree_root / task["project_id"] / task["id"] / f"attempt-{task['attempt']}")
     if not inside(expected, worktree_root) or expected.exists():
         raise ValueError("Attempt worktree already exists or path is invalid; preserve and reconcile it")
@@ -153,6 +153,6 @@ def ensure_worktree(task, project, worktree_root):
     expected.parent.mkdir(parents=True, exist_ok=True)
     branch = f"codex/center/{task['project_id']}/{task['id']}/{task['attempt']}"
     git(project["root"], "worktree", "add", "-b", branch, str(expected), task["base_rev"])
-    if task.get("checkpoint"):
+    if restore_checkpoint and task.get("checkpoint"):
         restore(expected, Path(task["checkpoint"]), task["base_rev"])
     return expected, branch

@@ -40,6 +40,7 @@ class CenterTests(unittest.TestCase):
         self.addCleanup(self.cleanup)
         test_config = json.loads((ROOT / 'center.config.json').read_text())
         test_config['live_execution'] = False
+        test_config['ide_reserved_sessions'] = 0  # the shipped config reserves a slot for the IDE; these tests model the full capacity
         self.config_path = self.root / 'center.config.json'
         self.config_path.write_text(json.dumps(test_config))
         self.center = Center(self.root / "state", self.config_path)
@@ -181,7 +182,7 @@ class CenterTests(unittest.TestCase):
         cfg = json.loads(self.ca.read_text())
         cfg["quality_gates"] = [["python", "-c", "raise SystemExit(9)"]]
         self.ca.write_text(json.dumps(cfg))
-        self.center.register("project-a", self.a, self.ca)
+        self.center.register("project-a", self.a, self.ca, confirm_config_change=True)
         t = self.task()
         result = self.center.run_phase(t["id"], "implementation", "mock", "codex")
         self.assertEqual(result["state"], "failed", result)
@@ -191,7 +192,7 @@ class CenterTests(unittest.TestCase):
         cfg = json.loads(self.ca.read_text())
         cfg["quality_gates"] = [["center_missing_executable_012345"]]
         self.ca.write_text(json.dumps(cfg))
-        self.center.register("project-a", self.a, self.ca)
+        self.center.register("project-a", self.a, self.ca, confirm_config_change=True)
         t = self.task()
         result = self.center.run_phase(t["id"], "implementation", "mock", "codex")
         self.assertNotEqual(result["state"], "ready_for_human_approval")
@@ -247,6 +248,8 @@ class CenterTests(unittest.TestCase):
         self.assertIsNone(self.center.claim(b["id"], "implementation", "mock"))
 
     def test_google_unavailable_quota_unknown_no_live_calls(self):
+        # The shipped config now enables Google; this test models the exhausted-quota state explicitly.
+        self.center.set_provider("google", "unavailable", "usage_exhausted")
         p = self.center.provider_status()["google"]
         self.assertEqual(p["availability"], "unavailable")
         self.assertEqual(p["reason"], "usage_exhausted")
@@ -573,7 +576,7 @@ class CenterTests(unittest.TestCase):
         cfg = json.loads(self.ca.read_text())
         cfg['quality_gates'] = [['python', '-c', f'from pathlib import Path; assert Path({str(flag)!r}).exists()']]
         self.ca.write_text(json.dumps(cfg))
-        self.center.register('project-a', self.a, self.ca)
+        self.center.register('project-a', self.a, self.ca, confirm_config_change=True)
         t = self.task()
         self.assertEqual(self.center.run_phase(t['id'], 'implementation', 'mock', 'codex')['state'], 'failed')
         before = self.center.store.task(t['id'])
