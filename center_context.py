@@ -96,7 +96,7 @@ def read_policy(worktree, scope, limit=16384, base_rev=None):
     return {'files': files, 'sha256': hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()}
 
 
-def read_sources(worktree, scope, limit=2097152, names=None):
+def read_sources(worktree, scope, limit=65536, names=None):
     root = canonical(worktree)
     selected = set()
     if names is not None:

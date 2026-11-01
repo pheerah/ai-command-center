@@ -6,7 +6,7 @@
   <title>AI Dev Command Center — Virtual Office</title>
   <link rel="stylesheet" href="/dashboard.css?v=2d_v3">
   <script defer src="/dashboard.js?v=2d_v3"></script>
-  <script defer src="/office_game.js?v=2d_v13"></script>
+  <script defer src="/office_game.js?v=2d_v14"></script>
 </head>
 <body>
 <main>
@@ -89,9 +89,9 @@
             <div class="energy-meter-wrap">
               <span class="energy-label">⚡ SYSTEM ENERGY & TOKENS:</span>
               <div class="energy-track">
-                <div class="energy-fill" style="width: 95%;"></div>
+                <div class="energy-fill" id="game-energy-fill"></div>
               </div>
-              <span class="energy-val">95% USABLE</span>
+              <span class="energy-val" id="game-energy-val">กำลังอ่านโควตา...</span>
             </div>
             <div class="working-agents-counter">
               <span id="game-working-counter">👩‍💻 กำลังทำงาน: 1 / 3 ตัว</span>
@@ -145,7 +145,7 @@
         </div>
 
         <!-- Direct Approval Button (If any task ready) -->
-        <div id="modal-approve-zone" style="display: none;">
+        <div id="modal-approve-zone" hidden>
           <button id="modal-btn-approve" class="btn-sidebar-approve" type="button">
             ✓ กดอนุมัติงานนี้นำเข้าโปรเจกต์ทันที 💕
           </button>
@@ -161,7 +161,7 @@
         </div>
 
         <!-- Button to open full terminal logs if task exists -->
-        <button type="button" id="modal-btn-terminal" class="btn-sidebar-secondary" style="width: 100%; margin-top: 10px;">
+        <button type="button" id="modal-btn-terminal" class="btn-sidebar-secondary btn-modal-wide">
           🔍 ดู Terminal Logs สดของงานปัจจุบัน
         </button>
       </div>

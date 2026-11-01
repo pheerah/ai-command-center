@@ -71,7 +71,7 @@ class RecoveryMixin:
             if current["status"] not in ("blocked", "failed"):
                 raise ValueError("Only failed/blocked tasks can be reconciled")
             if current["attempt"] >= current["max_attempts"]:
-                con.execute("UPDATE tasks SET max_attempts=? WHERE id=?", (current["attempt"] + 2, task_id))
+                raise ValueError("Attempt limit reached; create a new task referencing this evidence")
             if current["cancel_requested"]:
                 raise ValueError("Cancellation cannot be discarded by reassignment")
             live = con.execute("SELECT owner_pid,child_pid FROM sessions WHERE task_id=?", (task_id,)).fetchone()

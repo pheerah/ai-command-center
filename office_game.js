@@ -716,7 +716,7 @@
       }));
     }
 
-    if (approveZone) approveZone.style.display = waiting.length > 0 ? 'block' : 'none';
+    if (approveZone) approveZone.hidden = waiting.length === 0;
     if (btnApprove && waiting.length > 0) {
       btnApprove.textContent = `✓ กดอนุมัติงาน [${waiting[0].project_id}] ทันที 💕`;
       btnApprove.onclick = () => {
@@ -725,7 +725,7 @@
     }
 
     if (btnTerminal) {
-      btnTerminal.style.display = currentTaskId ? '' : 'none';
+      btnTerminal.hidden = !currentTaskId;
       btnTerminal.onclick = () => {
         closeAgentModal();
         if (window.details) window.details(currentTaskId);
@@ -891,9 +891,46 @@
       : `งานทั้งหมด ${tasks.length} งาน ตอนนี้ไม่มีงานรออนุมัติค่ะ 📊`;
 
     updateDoingLabels(sessions, tasks);
+    refreshEnergy();
 
     // Update Courier Maid Mia Movement
     updateBotMovement(characters.mia, miaWaypoints, 0.0016);
+  }
+
+  // SYSTEM ENERGY bar: the lowest remaining quota window across providers (real data from /api/quota)
+  let lastQuotaFetch = 0;
+
+  function lowestQuotaPercent(quota) {
+    const tightest = (windows) => {
+      const pct = windows.filter(w => w && typeof w.remaining_percent === 'number').map(w => w.remaining_percent);
+      return pct.length ? Math.min(...pct) : null;
+    };
+    const perProvider = [];
+    for (const reading of Object.values(quota || {})) {
+      if (!reading) continue;
+      // Model groups are alternatives: a provider is as usable as its best group (same rule as the backend).
+      const value = reading.groups
+        ? Math.max(-1, ...Object.values(reading.groups).map(g => tightest([g.five_hour, g.weekly])).filter(v => v !== null))
+        : tightest([reading.five_hour, reading.weekly]);
+      if (value !== null && value >= 0) perProvider.push(value);
+    }
+    return perProvider.length ? Math.min(...perProvider) : null;
+  }
+
+  function renderEnergy(percent) {
+    const fill = document.getElementById('game-energy-fill');
+    const val = document.getElementById('game-energy-val');
+    if (fill) fill.style.width = (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%';
+    if (val) val.textContent = percent === null ? 'ไม่ทราบโควตา' : `${Math.round(percent)}% USABLE`;
+  }
+
+  function refreshEnergy() {
+    if (Date.now() - lastQuotaFetch < 30000) return;
+    lastQuotaFetch = Date.now();
+    fetch('/api/quota')
+      .then(res => res.json())
+      .then(quota => renderEnergy(lowestQuotaPercent(quota)))
+      .catch(() => renderEnergy(null));
   }
 
   // Short "what is she doing right now" text shown under each name pill

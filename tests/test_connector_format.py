@@ -49,8 +49,8 @@ class InstallProjectTests(unittest.TestCase):
             (repo / 'CLAUDE.md').write_text('# Existing rules\nKeep me.\n', encoding='utf-8')
             for git_args in (['add', 'CLAUDE.md'], ['commit', '-qm', 'rules']):
                 subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', *git_args], cwd=repo, check=True)
-            install_project.install(repo, 'sample-project', gates=[['python', '-c', 'pass']], register=False)
-            install_project.install(repo, 'sample-project', force=True, register=False)
+            install_project.install(repo, 'sample-project', gates=[['python', '-c', 'pass']], register=False, ide='claude')
+            install_project.install(repo, 'sample-project', force=True, register=False, ide='claude')
             self.assertEqual((repo / 'CLAUDE.md').read_text(encoding='utf-8'), '# Existing rules\nKeep me.\n')  # the tracked file is never touched
             local = (repo / 'CLAUDE.local.md').read_text(encoding='utf-8')
             self.assertEqual(local.count(install_project.BEGIN), 1)
@@ -69,7 +69,7 @@ class InstallProjectTests(unittest.TestCase):
     def test_new_claude_md_is_excluded_so_checkout_stays_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
-            install_project.install(repo, 'clean-project', register=False)
+            install_project.install(repo, 'clean-project', register=False, ide='claude')
             status = subprocess.run(['git', 'status', '--porcelain'], cwd=repo, capture_output=True, text=True, check=True).stdout
             self.assertEqual(status.strip(), '')
 
@@ -83,7 +83,7 @@ class InstallProjectTests(unittest.TestCase):
             for git_args in (['add', '-A'], ['commit', '-qm', 'init']):
                 subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', *git_args], cwd=repo, check=True)
             state = Path(tmp) / 'state'
-            result = install_project.install(repo, 'api-sample', scopes=['src'], gates=[['python', '-c', 'pass']], state=state)
+            result = install_project.install(repo, 'api-sample', scopes=['src'], gates=[['python', '-c', 'pass']], state=state, ide='claude')
             self.assertTrue(result['registered'])
             connection = json.loads((repo / 'center.connection.json').read_text(encoding='utf-8'))
             self.assertEqual(center_api.project_for_token(Center(state).store.state, connection['token']), 'api-sample')
@@ -101,13 +101,13 @@ class InstallProjectTests(unittest.TestCase):
     def test_install_adds_the_edit_guard_hook_and_keeps_it_out_of_git(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
-            install_project.install(repo, 'hooked', register=False)
+            install_project.install(repo, 'hooked', register=False, ide='claude')
             settings = json.loads((repo / '.claude/settings.local.json').read_text(encoding='utf-8'))
             group = settings['hooks']['PreToolUse'][0]
             self.assertEqual(group['matcher'], install_project.HOOK_MATCHER)
             self.assertIn('center_guard.py', group['hooks'][0]['command'])
             self.assertTrue((repo / '.claude/hooks/center_guard.py').is_file())
-            install_project.install(repo, 'hooked', force=True, register=False)
+            install_project.install(repo, 'hooked', force=True, register=False, ide='claude')
             again = json.loads((repo / '.claude/settings.local.json').read_text(encoding='utf-8'))
             self.assertEqual(len(again['hooks']['PreToolUse']), 1)  # idempotent
             exclude = (repo / '.git/info/exclude').read_text(encoding='utf-8').splitlines()
@@ -120,7 +120,7 @@ class InstallProjectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
             (repo / 'src').mkdir()
-            install_project.install(repo, 'blocked', scopes=['src'], register=False)
+            install_project.install(repo, 'blocked', scopes=['src'], register=False, ide='claude')
             payload = json.dumps({'tool_name': 'Write', 'tool_input': {'file_path': str(repo / 'src' / 'a.py')}, 'cwd': str(repo)})
             run = subprocess.run([sys.executable, str(repo / '.claude/hooks/center_guard.py')], input=payload, capture_output=True, text=True)
             self.assertEqual(run.returncode, 2)
@@ -129,9 +129,9 @@ class InstallProjectTests(unittest.TestCase):
     def test_prepare_commands_are_written_only_when_given(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
-            install_project.install(repo, 'prep', prepare=[['npm', 'ci']], register=False)
+            install_project.install(repo, 'prep', prepare=[['npm', 'ci']], register=False, ide='claude')
             self.assertEqual(json.loads((repo / 'project.config.json').read_text(encoding='utf-8'))['prepare_commands'], [['npm', 'ci']])
-            install_project.install(repo, 'prep', force=True, register=False)
+            install_project.install(repo, 'prep', force=True, register=False, ide='claude')
             self.assertEqual(json.loads((repo / 'project.config.json').read_text(encoding='utf-8'))['prepare_commands'], [])
 
     def test_commands_accept_plain_text_and_explain_mangled_powershell_json(self):
@@ -153,7 +153,7 @@ class InstallProjectTests(unittest.TestCase):
                 subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', *git_args], cwd=repo, check=True)
             (repo / 'CLAUDE.md').write_text(original + chr(10) + install_project.BEGIN + chr(10) + 'old rules' + chr(10) + install_project.END + chr(10), encoding='utf-8')
             self.assertNotEqual(subprocess.run(['git', 'status', '--porcelain'], cwd=repo, capture_output=True, text=True).stdout.strip(), '')
-            result = install_project.install(repo, 'legacy', register=False)
+            result = install_project.install(repo, 'legacy', register=False, ide='claude')
             self.assertTrue(result['legacy_claude_md_block_removed'])
             self.assertEqual((repo / 'CLAUDE.md').read_text(encoding='utf-8'), original)
             self.assertEqual(subprocess.run(['git', 'status', '--porcelain'], cwd=repo, capture_output=True, text=True).stdout.strip(), '')
@@ -165,22 +165,22 @@ class InstallProjectTests(unittest.TestCase):
                 original = ('# Rules' + eol + 'Keep me.' + eol).encode('utf-8')
                 block = (eol + install_project.BEGIN + eol + 'old rules' + eol + install_project.END + eol).encode('utf-8')
                 (repo / 'CLAUDE.md').write_bytes(original + block)
-                install_project.install(repo, 'eol', register=False)
+                install_project.install(repo, 'eol', register=False, ide='claude')
                 self.assertEqual((repo / 'CLAUDE.md').read_bytes(), original, repr(eol))
 
     def test_update_refreshes_shipped_files_but_keeps_registration_and_gates(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.make_repo(tmp)
-            install_project.install(repo, 'upd', gates=[['npm', 'run', 'lint']], register=False)
+            install_project.install(repo, 'upd', gates=[['npm', 'run', 'lint']], register=False, ide='claude')
             (repo / 'center.connection.json').write_text(json.dumps({'url': 'http://127.0.0.1:3939', 'token': 'cc_keep'}), encoding='utf-8')
             (repo / '.claude' / 'hooks' / 'center_guard.py').write_text('stale', encoding='utf-8')
-            install_project.install(repo, 'upd', update=True)
+            install_project.install(repo, 'upd', update=True, ide='claude')
             self.assertIn('def main', (repo / '.claude' / 'hooks' / 'center_guard.py').read_text(encoding='utf-8'))
             self.assertEqual(json.loads((repo / 'center.connection.json').read_text(encoding='utf-8'))['token'], 'cc_keep')
             self.assertEqual(json.loads((repo / 'project.config.json').read_text(encoding='utf-8'))['quality_gates'], [['npm', 'run', 'lint']])
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, 'already installed'):
-                install_project.install(self.make_repo(tmp), 'never', update=True)
+                install_project.install(self.make_repo(tmp), 'never', update=True, ide='claude')
 
     def test_refuses_non_git_dir_overwrite_and_center_itself(self):
         with tempfile.TemporaryDirectory() as tmp:

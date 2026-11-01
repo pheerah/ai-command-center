@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 
-EXCLUDED = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".ai-team", ".worktrees", "dist", "coverage", "test-results", "playwright-report", "generated", ".next", "out"}
+EXCLUDED = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".ai-team", ".worktrees", "dist", "coverage", "test-results", "playwright-report"}
 
 
 def canonical(path):
@@ -67,16 +67,10 @@ def patch(root, base_rev, scope, max_bytes=10 * 1024 * 1024):
         raise ValueError("Base revision changed; worker commits are not allowed")
     changed = set(filter(None, git(root, "diff", "--name-only", "--no-renames", "-z", base_rev).split("\0")))
     untracked = set(filter(None, git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")))
-    # Exclude disposable caches and build/generated artifacts from patch tracking
-    untracked = {
-        name for name in untracked
-        if not any(p in EXCLUDED for p in Path(name).parts)
-        and not ('__pycache__' in Path(name).parts[:-1] and Path(name).suffix in ('.pyc', '.pyo'))
-    }
-    changed = {
-        name for name in changed
-        if not any(p in EXCLUDED for p in Path(name).parts)
-    }
+    # Python bytecode can appear when an existing gate imports source. Exclude
+    # only this disposable cache; other unexpected generated/dependency paths
+    # still fail the scope/hash fence instead of being silently hidden.
+    untracked = {name for name in untracked if not ('__pycache__' in Path(name).parts[:-1] and Path(name).suffix in ('.pyc', '.pyo'))}
     ignored = filter(None, git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", *scope).split("\0"))
     for name in ignored:
         if any(p in EXCLUDED for p in Path(name).parts):
@@ -91,7 +85,7 @@ def patch(root, base_rev, scope, max_bytes=10 * 1024 * 1024):
         if sensitive(name):
             raise ValueError("Sensitive path detected; file contents were not read")
         if any(p in EXCLUDED for p in Path(name).parts):
-            continue
+            raise ValueError("Generated/dependency path in patch")
         if not in_scope(name, scope):
             # Allow test files if AI followed TDD or created test coverage for its changes
             parts_lower = [part.lower() for part in Path(name).parts]
