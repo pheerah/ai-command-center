@@ -18,6 +18,7 @@ def main():
     target.mkdir(parents=True, exist_ok=False)
     config = json.loads((ROOT / 'center.config.json').read_text())
     config['live_execution'] = False
+    config['chat'] = {'providers': ['codex'], 'adapter': 'mock'}
     center_config_path = target / 'center.config.json'
     center_config_path.write_text(json.dumps(config, indent=2), encoding='utf-8')
     center = Center(target / "state", center_config_path)

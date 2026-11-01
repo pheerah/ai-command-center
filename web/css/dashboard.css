@@ -3654,3 +3654,136 @@ body.office-mode #health {
 body.office-mode .view-switcher-bar {
   margin-bottom: 8px;
 }
+
+
+/* Secretary chat */
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 38vh;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  padding-right: 2px;
+}
+
+.chat-msg {
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-user {
+  align-self: flex-end;
+  background: #be185d;
+  color: #fff;
+}
+
+.chat-secretary {
+  align-self: stretch;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+}
+
+.chat-thinking {
+  align-self: flex-start;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.chat-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid #ef4444;
+  color: #fecaca;
+}
+
+.chat-sources {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.chat-questions {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.chat-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
+
+.chat-draft-hint {
+  font-size: 11px;
+  color: #38bdf8;
+}
+
+.chat-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-field-label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.chat-field input,
+.chat-field textarea,
+.chat-field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.chat-field select {
+  width: auto;
+}
+
+.chat-draft-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-confirm {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chat-confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chat-draft-done {
+  color: #86efac;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#chat-form input:disabled,
+#chat-form button:disabled {
+  opacity: 0.6;
+}

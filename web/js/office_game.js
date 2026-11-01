@@ -487,60 +487,6 @@
         if (e.target === overlay) closeAgentModal();
       });
     }
-
-    // Modal Command Input
-    const cmdInput = document.getElementById('modal-command-input');
-    const cmdSend = document.getElementById('modal-command-send');
-    if (cmdSend && cmdInput) {
-      const handleSend = () => {
-        const prompt = cmdInput.value.trim();
-        if (!prompt || !selectedEntity) return;
-        cmdInput.value = '';
-
-        const proj = selectedEntity.project || document.getElementById('dispatch-project')?.value || 'spc-new-erp';
-
-        playCuteSound(880, 'triangle', 0.2);
-        for (let i = 0; i < 6; i++) {
-          addParticle(
-            selectedEntity.x * width + (Math.random() * 40 - 20),
-            selectedEntity.y * height - 80,
-            '🚀', '#ec4899',
-            Math.random() * 1 - 0.5,
-            -1.5 - Math.random() * 0.5
-          );
-        }
-
-        const quoteEl = document.getElementById('modal-quote-text');
-        const firstName = selectedEntity.name.split(' ')[0];
-        const setQuote = (text) => { if (quoteEl) quoteEl.textContent = text; };
-        setQuote(`"${firstName} กำลังวางแผนและส่งงาน [${proj}]: '${prompt}' รอสักครู่นะคะ ⏳"`);
-
-        fetch('/api/dispatch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project_id: proj, prompt: prompt })
-        })
-        .then(async res => ({ res, data: await res.json().catch(() => ({})) }))
-        .then(({ res, data }) => {
-          if (!res.ok || !data.ok) {
-            setQuote(`"ส่งงานไม่สำเร็จค่ะ: ${String(data.error || res.status).slice(0, 300)}"`);
-            return;
-          }
-          playCuteSound(1046, 'sine', 0.25);
-          setQuote(`"${firstName} ส่งงานโปรเจกต์ [${proj}] เรียบร้อยแล้วค่ะ: '${prompt}' 💕"`);
-          if (window.refresh) window.refresh();
-        })
-        .catch(err => {
-          console.error('Dispatch error:', err);
-          setQuote(`"เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ค่ะ: ${err.message}"`);
-        });
-      };
-
-      cmdSend.onclick = handleSend;
-      cmdInput.onkeydown = (e) => {
-        if (e.key === 'Enter') handleSend();
-      };
-    }
   }
 
   function resizeCanvas() {
@@ -664,7 +610,6 @@
     const approveZone = document.getElementById('modal-approve-zone');
     const btnApprove = document.getElementById('modal-btn-approve');
     const btnTerminal = document.getElementById('modal-btn-terminal');
-    const cmdInput = document.getElementById('modal-command-input');
     const mainProjSelect = document.getElementById('dispatch-project');
 
     if (photoEl) photoEl.src = char.photoUrl || '/assets/sec_white_blouse.png';
@@ -675,11 +620,15 @@
       if (projChip) projChip.textContent = `📁 ${char.project}`;
       if (roleEl) roleEl.textContent = `${char.badge || 'Agent'} · ${char.project}`;
       if (mainProjSelect) mainProjSelect.value = char.project;
-      if (cmdInput) cmdInput.placeholder = `สั่งงาน [${char.project}] ผ่าน${char.name.split(' ')[0]}...`;
     } else {
       if (projChip) projChip.textContent = `🏢 แผนก: ${char.zone || 'ส่วนกลาง'}`;
       if (roleEl) roleEl.textContent = char.zone || 'ส่วนกลาง';
-      if (cmdInput) cmdInput.placeholder = 'สั่งงานส่วนกลาง หรือ ทักทายสาวๆ...';
+    }
+
+    const chatBox = document.getElementById('secretary-chat');
+    if (chatBox) {
+      chatBox.hidden = !char.project;
+      if (char.project && window.SecretaryChat) window.SecretaryChat.mount(chatBox, char.project);
     }
 
     if (statusEl) {
@@ -741,7 +690,8 @@
     if (overlay) {
       overlay.hidden = false;
       startPortraitMotion();
-      if (cmdInput) cmdInput.focus();
+      const chatInput = document.getElementById('chat-input');
+      if (chatInput && chatBox && !chatBox.hidden) chatInput.focus();
     }
   }
 

@@ -6,6 +6,7 @@
   <title>AI Dev Command Center — Virtual Office</title>
   <link rel="stylesheet" href="/css/dashboard.css">
   <script defer src="/js/dashboard.js"></script>
+  <script defer src="/js/chat.js"></script>
   <script defer src="/js/office_game.js"></script>
 </head>
 <body>
@@ -153,13 +154,14 @@
           </button>
         </div>
 
-        <!-- Direct Task Command Box -->
-        <div class="modal-command-section">
-          <h4>💬 พิมพ์สั่งงานโปรเจกต์นี้ผ่านเลขาฯ</h4>
-          <div class="modal-input-group">
-            <input type="text" id="modal-command-input" placeholder="พิมพ์คำสั่ง เช่น แก้บั๊กหน้า report, เพิ่ม unit test..." />
-            <button type="button" id="modal-command-send">🚀 ส่งงานทันที</button>
-          </div>
+        <!-- Secretary chat: ask, get questions back, or review a drafted task before it exists -->
+        <div class="modal-command-section" id="secretary-chat" hidden>
+          <h4>💬 คุยกับเลขาฯ ของโปรเจกต์นี้</h4>
+          <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+          <form id="chat-form" class="modal-input-group">
+            <input type="text" id="chat-input" maxlength="4000" autocomplete="off" aria-label="ข้อความถึงเลขาฯ" placeholder="ถามเรื่องโค้ด หรือสั่งงาน..." />
+            <button type="submit" id="chat-send">ส่ง</button>
+          </form>
         </div>
 
         <!-- Button to open full terminal logs if task exists -->
