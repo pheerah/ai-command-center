@@ -94,13 +94,13 @@ function projectForToken(header) {
   return entry && !entry.revoked ? entry.project_id : null;
 }
 
-function callCenterApi(projectId, request) {
+function callCenterApi(projectId, request, timeoutMs = 60000) {
   const args = [path.join(ROOT, 'backend', 'smart_router.py')];
   if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
   if (process.env.AI_CENTER_CONFIG) args.push('--config', process.env.AI_CENTER_CONFIG);
   args.push('--project-id', projectId, 'api-call');
   return new Promise(resolve => {
-    const child = execFile(PYTHON, args, { cwd: ROOT, timeout: 60000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+    const child = execFile(PYTHON, args, { cwd: ROOT, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
       try { resolve(JSON.parse(stdout)); } catch { resolve({ ok: false, status: 503, error: 'Center unavailable' }); }
     });
     child.stdin.end(JSON.stringify(request));
@@ -153,6 +153,40 @@ async function handleV1(req, res, url, { lookupToken, callApi }) {
   inflight += 1;
   let answer;
   try { answer = await callApi(projectId, route[2](route[1].exec(url.pathname), body)); } finally { inflight -= 1; }
+  return send(answer.status || 500, answer.ok ? answer.data : { error: answer.error || 'Request failed' });
+}
+
+// ---- Secretary chat (the owner's dashboard only: project tokens have no route to these operations) --------------------------
+const CHAT_ROUTES = { '/api/chat': ['POST', 'chat'], '/api/chat/history': ['GET', 'chat_history'], '/api/chat/confirm': ['POST', 'chat_confirm'] };
+const PROJECT_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;  // same rule as the Center's valid_id
+const CHAT_TIMEOUT_MS = 100000;  // a little over the 90 s provider limit so the Center can answer with its own error
+
+async function handleChat(req, res, url, callApi) {
+  const send = (status, body) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+  const [method, op] = CHAT_ROUTES[url.pathname];
+  if (req.method !== method) return send(405, { error: 'Method not allowed' });
+  let body = {};
+  if (method === 'POST') {
+    if (!/^application\/json(;|$)/i.test(req.headers['content-type'] || '')) return send(415, { error: 'Content-Type must be application/json' });
+    let raw;
+    try { raw = await readBody(req); } catch { return send(413, { error: 'Body is limited to 64 KB' }); }
+    try { body = JSON.parse(raw || '{}'); } catch { return send(400, { error: 'Body must be valid JSON' }); }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return send(400, { error: 'Body must be an object' });
+  }
+  const projectId = method === 'POST' ? body.project_id : url.searchParams.get('project_id');
+  if (typeof projectId !== 'string' || !PROJECT_ID.test(projectId)) return send(400, { error: 'project_id is required' });
+  let request = { op };
+  if (op === 'chat') {
+    if (typeof body.message !== 'string' || typeof body.client_turn_id !== 'string') return send(400, { error: 'message and client_turn_id are required' });
+    request = { op, body: { message: body.message, client_turn_id: body.client_turn_id } };
+  } else if (op === 'chat_confirm') {
+    if (!Number.isInteger(body.message_id)) return send(400, { error: 'message_id is required' });
+    request = { op, body: body.edits === undefined ? { message_id: body.message_id } : { message_id: body.message_id, edits: body.edits } };
+  }
+  if (inflight >= MAX_INFLIGHT) { res.setHeader('Retry-After', '5'); return send(503, { error: 'Center is busy; retry shortly' }); }
+  inflight += 1;
+  let answer;
+  try { answer = await callApi(projectId, request, CHAT_TIMEOUT_MS); } finally { inflight -= 1; }
   return send(answer.status || 500, answer.ok ? answer.data : { error: answer.error || 'Request failed' });
 }
 
@@ -219,6 +253,11 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       return;
     }
     const url = new URL(req.url, `http://${host}`);
+    if (Object.hasOwn(CHAT_ROUTES, url.pathname)) {
+      try { await handleChat(req, res, url, callApi); }
+      catch { if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Request failed' })); }
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/api/dispatch') {
       let body = {};
       try {

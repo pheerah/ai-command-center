@@ -178,7 +178,85 @@ describe('read-only Center dashboard', () => {
       }
     });
   });
-  it('blocks legacy direct execution', async () => { for (const route of ['/api/chat', '/api/chat/synthesize', '/api/project/run-task', '/api/config']) { const r = await fetch(base + route, { method: 'POST', body: '{}' }); expect(r.status).toBe(410); } });
+  it('blocks legacy direct execution', async () => { for (const route of ['/api/chat/synthesize', '/api/project/run-task', '/api/config']) { const r = await fetch(base + route, { method: 'POST', body: '{}' }); expect(r.status).toBe(410); } });
   it('rejects foreign origins and unknown routes', async () => { expect((await fetch(base + '/api/status', { headers: { Origin: 'https://external.invalid' } })).status).toBe(403); expect((await fetch(base + '/api/browse')).status).toBe(404); });
   it('does not expose files or credentials', async () => { for (const route of ['/.env', '/server.js', '/.git/config']) expect((await fetch(base + route)).status).toBe(404); });
+});
+
+describe('secretary chat routes', () => {
+  const calls = [];
+  const json = { 'Content-Type': 'application/json' };
+  const fixture = callApi => createServer({
+    lookupToken: header => (header === 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa' ? 'alpha' : null),
+    callApi: callApi || (async (project, request, timeoutMs) => { calls.push({ project, request, timeoutMs }); return { ok: true, status: 200, data: { echo: request.op } }; }),
+  });
+  const withServer = async (run, callApi) => {
+    const api = fixture(callApi);
+    await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
+    try { return await run(`http://127.0.0.1:${api.address().port}`); } finally { await new Promise(resolve => api.close(resolve)); }
+  };
+  const post = (url, path, body, headers = json) => fetch(url + path, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+
+  it('forwards a message, the history request and a confirmation to the matching Center operation', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      const sent = await post(url, '/api/chat', { project_id: 'alpha', message: 'hello', client_turn_id: 'turn-00000001' });
+      expect(sent.status).toBe(200);
+      expect((await sent.json()).echo).toBe('chat');
+      expect((await (await fetch(url + '/api/chat/history?project_id=alpha')).json()).echo).toBe('chat_history');
+      const confirmed = await post(url, '/api/chat/confirm', { project_id: 'alpha', message_id: 7, edits: { title: 'x' } });
+      expect((await confirmed.json()).echo).toBe('chat_confirm');
+    });
+    expect(calls.map(c => c.request.op)).toEqual(['chat', 'chat_history', 'chat_confirm']);
+    expect(calls[0]).toMatchObject({ project: 'alpha', request: { op: 'chat', body: { message: 'hello', client_turn_id: 'turn-00000001' } } });
+    expect(calls[2].request.body).toEqual({ message_id: 7, edits: { title: 'x' } });
+    expect(calls[0].timeoutMs).toBe(100000);
+  });
+
+  it('refuses a missing or malformed project id, bad bodies and non-JSON posts without calling the Center', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      for (const bad of [undefined, '', '../x', 'UP PER', '-lead', 'a'.repeat(65), 5]) {
+        expect((await post(url, '/api/chat', { project_id: bad, message: 'hi', client_turn_id: 'turn-00000001' })).status, String(bad)).toBe(400);
+      }
+      expect((await post(url, '/api/chat', { project_id: 'alpha', message: 5, client_turn_id: 'turn-00000001' })).status).toBe(400);
+      expect((await post(url, '/api/chat', { project_id: 'alpha', message: 'hi' })).status).toBe(400);
+      expect((await post(url, '/api/chat/confirm', { project_id: 'alpha' })).status).toBe(400);
+      expect((await post(url, '/api/chat', '{not json')).status).toBe(400);
+      expect((await post(url, '/api/chat', 'x', { 'Content-Type': 'text/plain' })).status).toBe(415);
+      expect((await fetch(url + '/api/chat/history')).status).toBe(400);
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('is browser-only: a foreign origin is refused, project tokens cannot reach it and the old route shape stays closed', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      expect((await post(url, '/api/chat', { project_id: 'alpha', message: 'hi', client_turn_id: 'turn-00000001' }, { ...json, Origin: 'https://evil.invalid' })).status).toBe(403);
+      const auth = { Authorization: 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa' };
+      for (const route of ['/api/v1/chat', '/api/v1/chat/history', '/api/v1/chat/confirm']) {
+        expect((await post(url, route, { message: 'hi', client_turn_id: 'turn-00000001' }, { ...auth, ...json })).status, route).toBe(404);
+      }
+      expect((await fetch(url + '/api/chat')).status).not.toBe(200);
+      expect((await post(url, '/api/chat/synthesize', {})).status).toBe(410);
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('answers a Center failure with its status and message, and says so when the Center is busy', async () => {
+    await withServer(async url => {
+      const failed = await post(url, '/api/chat', { project_id: 'alpha', message: 'hi', client_turn_id: 'turn-00000001' });
+      expect(failed.status).toBe(409);
+      expect((await failed.json()).error).toBe('nope');
+    }, async () => ({ ok: false, status: 409, error: 'nope' }));
+    const release = [];
+    await withServer(async url => {
+      const open = [1, 2, 3, 4].map(n => post(url, '/api/chat', { project_id: 'alpha', message: 'hi', client_turn_id: `turn-0000000${n}` }));
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const busy = await post(url, '/api/chat', { project_id: 'alpha', message: 'hi', client_turn_id: 'turn-00000005' });
+      expect(busy.status).toBe(503);
+      release.forEach(fn => fn());
+      expect((await Promise.all(open)).map(r => r.status)).toEqual([200, 200, 200, 200]);
+    }, () => new Promise(resolve => release.push(() => resolve({ ok: true, status: 200, data: {} }))));
+  });
 });
