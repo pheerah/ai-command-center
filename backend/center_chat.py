@@ -1,0 +1,118 @@
+"""Secretary chat: one read-only AI turn per user message.
+
+The model may answer, ask back, or draft a task. It can never create a task: a draft becomes a task only when the user
+confirms it (see prepare_confirmation), and then through the normal submit path with its scope and gate checks.
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from center_workspace import EXCLUDED, in_scope, safe_relative, sensitive
+
+DEFAULTS = {'providers': ['codex', 'claude'], 'timeout_seconds': 90, 'history_turns': 10,
+            'max_message_chars': 4000, 'context_bytes': 65536, 'adapter': 'live'}
+TASK_ID = re.compile(r'^[a-f0-9]{12}$')
+PROVIDER_NAME = re.compile(r'^[a-z0-9_-]{1,20}$')
+MAX_REPLY_CHARS = 8000
+
+
+class ChatOutputError(ValueError):
+    """The model's answer is not one of the three accepted shapes."""
+
+
+def chat_settings(center):
+    """Chat settings from center.config['chat'] with the defaults of the spec; invalid values fall back to the default."""
+    configured = center.config.get('chat')
+    configured = configured if isinstance(configured, dict) else {}
+    settings = dict(DEFAULTS)
+    for key in ('timeout_seconds', 'history_turns', 'max_message_chars', 'context_bytes'):
+        value = configured.get(key)
+        if type(value) is int and value > 0:
+            settings[key] = value
+    providers = configured.get('providers')
+    if isinstance(providers, list):
+        settings['providers'] = [p for p in providers if isinstance(p, str) and p in center.config.get('providers', {})]
+    if configured.get('adapter') in ('live', 'mock'):
+        settings['adapter'] = configured['adapter']
+    return settings
+
+
+def _first_object(raw):
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        raise ChatOutputError('Answer is not text')
+    decoder = json.JSONDecoder()
+    start = raw.find('{')
+    while start != -1:
+        try:
+            value, _ = decoder.raw_decode(raw, start)
+        except ValueError:
+            start = raw.find('{', start + 1)
+            continue
+        if isinstance(value, dict):
+            return value
+        start = raw.find('{', start + 1)
+    raise ChatOutputError('Answer has no JSON object')
+
+
+def _text(value, key, maximum):
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+        raise ChatOutputError(f'{key} must be a non-empty string up to {maximum} characters')
+    return value
+
+
+def _list(value, key, minimum, items, maximum):
+    if not isinstance(value, list) or not minimum <= len(value) <= items:
+        raise ChatOutputError(f'{key} must be a list of {minimum}-{items} items')
+    return [_text(v, key, maximum) for v in value]
+
+
+def _path_allowed(name, context_scope):
+    try:
+        relative = safe_relative(name)
+    except ValueError:
+        return False
+    return in_scope(relative, context_scope) and not sensitive(relative) and not any(p in EXCLUDED for p in Path(relative).parts)
+
+
+def _exact_keys(value, allowed, required):
+    if set(value) - allowed or required - set(value):
+        raise ChatOutputError('Answer has unexpected or missing fields')
+
+
+def parse_secretary_output(raw, context_scope):
+    """Validate the model's answer; return the normalised payload or raise ChatOutputError."""
+    value = _first_object(raw)
+    kind = value.get('kind')
+    if kind == 'reply':
+        _exact_keys(value, {'kind', 'text', 'files'}, {'kind', 'text'})
+        files = value.get('files', [])
+        if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+            raise ChatOutputError('files must be a list of paths')
+        return {'kind': 'reply', 'text': _text(value['text'], 'text', 10 ** 6)[:MAX_REPLY_CHARS],
+                'files': [f for f in files if _path_allowed(f, context_scope)]}
+    if kind == 'clarify':
+        _exact_keys(value, {'kind', 'questions'}, {'kind', 'questions'})
+        return {'kind': 'clarify', 'questions': _list(value['questions'], 'questions', 1, 3, 300)}
+    if kind == 'draft_task':
+        _exact_keys(value, {'kind', 'title', 'prompt', 'scope', 'accept', 'complexity', 'provider', 'related_task_id'},
+                    {'kind', 'title', 'prompt', 'scope', 'accept', 'complexity'})
+        scope = _list(value['scope'], 'scope', 1, 20, 200)
+        if not all(_path_allowed(item, context_scope) for item in scope):
+            raise ChatOutputError('scope is outside the project context')
+        complexity = value['complexity']
+        if type(complexity) is not int or complexity not in range(1, 6):
+            raise ChatOutputError('complexity must be an integer 1-5')
+        provider = value.get('provider', 'auto')
+        if not isinstance(provider, str) or provider != 'auto' and not PROVIDER_NAME.match(provider):
+            raise ChatOutputError('provider is not valid')
+        related = value.get('related_task_id')
+        if related is not None and not (isinstance(related, str) and TASK_ID.match(related)):
+            raise ChatOutputError('related_task_id is not a task id')
+        return {'kind': 'draft_task', 'title': _text(value['title'], 'title', 200), 'prompt': _text(value['prompt'], 'prompt', 12000),
+                'scope': scope, 'accept': _list(value['accept'], 'accept', 1, 20, 500), 'complexity': complexity,
+                'provider': provider, 'related_task_id': related}
+    raise ChatOutputError('Unknown answer kind')

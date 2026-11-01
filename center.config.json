@@ -203,5 +203,9 @@
     "five_hour": 10,
     "weekly": 15
   },
-  "codex_context_guard": true
+  "codex_context_guard": true,
+  "chat": {
+    "providers": ["codex", "claude"],
+    "adapter": "live"
+  }
 }
