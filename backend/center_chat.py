@@ -6,14 +6,18 @@ confirms it (see prepare_confirmation), and then through the normal submit path 
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
+import subprocess
 import time
 from pathlib import Path
 
 import center_quota
 from center_context import read_sources
 from center_planner import extract_mentioned_files
+from center_process import terminate_tree, worker_env
+from center_worker import cli_command
 from center_workspace import EXCLUDED, in_scope, safe_relative, sensitive
 
 DEFAULTS = {'providers': ['codex', 'claude'], 'timeout_seconds': 90, 'history_turns': 10,
@@ -88,9 +92,25 @@ def _exact_keys(value, allowed, required):
         raise ChatOutputError('Answer has unexpected or missing fields')
 
 
+FLAT_KEYS = ('kind', 'text', 'files', 'questions', 'title', 'prompt', 'scope', 'accept', 'complexity', 'provider', 'related_task_id')
+KIND_KEYS = {'reply': ('kind', 'text', 'files'), 'clarify': ('kind', 'questions'),
+             'draft_task': ('kind', 'title', 'prompt', 'scope', 'accept', 'complexity', 'provider', 'related_task_id')}
+
+
+def _from_flat(value):
+    """Structured-output schemas are one flat object with every field required; keep only the fields of the chosen kind."""
+    if not set(FLAT_KEYS) <= set(value) or value.get('kind') not in KIND_KEYS:
+        return value
+    kept = {key: value[key] for key in KIND_KEYS[value['kind']]}
+    if value['kind'] == 'draft_task':
+        kept['provider'] = kept['provider'] or 'auto'
+        kept['related_task_id'] = kept['related_task_id'] or None
+    return kept
+
+
 def parse_secretary_output(raw, context_scope):
     """Validate the model's answer; return the normalised payload or raise ChatOutputError."""
-    value = _first_object(raw)
+    value = _from_flat(_first_object(raw))
     kind = value.get('kind')
     if kind == 'reply':
         _exact_keys(value, {'kind', 'text', 'files'}, {'kind', 'text'})
@@ -238,3 +258,107 @@ def build_context(center, project_id, message, history):
         parts.append(block('earlier conversation', '\n'.join(_render_turn(r) for r in recent)))
     parts.append(block('new message from the user', message))
     return {'prompt': '\n\n'.join(parts), 'files': [f['path'] for f in files], 'skipped': skipped}
+
+
+# ---- provider invocation ----------------------------------------------------------------------------------------------
+
+RESPONSE_SCHEMA = {
+    'type': 'object', 'additionalProperties': False,
+    'properties': {
+        'kind': {'type': 'string', 'enum': ['reply', 'clarify', 'draft_task']},
+        'text': {'type': 'string'}, 'files': {'type': 'array', 'items': {'type': 'string'}},
+        'questions': {'type': 'array', 'items': {'type': 'string'}},
+        'title': {'type': 'string'}, 'prompt': {'type': 'string'},
+        'scope': {'type': 'array', 'items': {'type': 'string'}}, 'accept': {'type': 'array', 'items': {'type': 'string'}},
+        'complexity': {'type': 'integer'}, 'provider': {'type': 'string'}, 'related_task_id': {'type': ['string', 'null']},
+    },
+}
+RESPONSE_SCHEMA['required'] = list(RESPONSE_SCHEMA['properties'])
+GOOGLE_PROMPT_LIMIT = 20000  # agy takes the prompt as a command-line argument
+
+
+class ProviderFailure(Exception):
+    """A provider could not give a usable answer; `reason` is one of unavailable, timeout, blocked, bad_output."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def chat_command(provider, schema_path):
+    """Command line for one read-only chat call. Codex and Claude read the prompt from stdin; Google gets it appended by run_provider."""
+    schema_path = Path(schema_path)
+    base = cli_command(provider)
+    if provider == 'codex':
+        return base + ['exec', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--output-schema', str(schema_path),
+                       '--output-last-message', str(schema_path.with_name('final.json')), '--json', '--color', 'never', '-']
+    if provider == 'claude':
+        # No tools at all: everything the model may see is in the prompt, so it cannot read, write or run anything else.
+        return base + ['--print', '--restricted', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--tools', '',
+                       '--permission-mode', 'manual', '--output-format', 'json', '--json-schema', json.dumps(RESPONSE_SCHEMA)]
+    if provider == 'google':
+        return base + ['--output-format', 'json', '--mode', 'plan', '--json-schema', str(schema_path), '--dangerously-skip-permissions']
+    raise ProviderFailure('unavailable')
+
+
+def _answer_text(provider, workdir, log):
+    if provider == 'codex':
+        return (workdir / 'final.json').read_text(encoding='utf-8')
+    envelope = json.loads(log)
+    if provider == 'google':
+        if envelope.get('status') != 'SUCCESS':
+            raise ProviderFailure('blocked')
+        answer = envelope.get('structured_output')
+    else:
+        if envelope.get('is_error'):
+            raise ProviderFailure('unavailable')
+        answer = envelope.get('structured_output') or envelope.get('result')
+    if isinstance(answer, dict):
+        return json.dumps(answer)
+    if isinstance(answer, str) and answer.strip():
+        return answer
+    raise ProviderFailure('bad_output')
+
+
+def run_provider(provider, prompt, timeout, workdir):
+    """Run one read-only provider call in `workdir` (a scratch directory, never the project) and return the model's raw answer text."""
+    workdir = Path(workdir)
+    schema_path = workdir / 'schema.json'
+    schema_path.write_text(json.dumps(RESPONSE_SCHEMA), encoding='utf-8')
+    try:
+        command = chat_command(provider, schema_path)
+    except ValueError:
+        raise ProviderFailure('unavailable') from None
+    stdin = subprocess.DEVNULL
+    if provider == 'google':
+        if len(prompt) > GOOGLE_PROMPT_LIMIT:
+            raise ProviderFailure('blocked')
+        command.append('--print=' + prompt)
+    else:
+        (workdir / 'prompt.txt').write_text(prompt, encoding='utf-8')
+        stdin = (workdir / 'prompt.txt').open('rb')
+    log_path = workdir / 'provider.log'
+    try:
+        with log_path.open('wb') as out:
+            try:
+                proc = subprocess.Popen(command, cwd=workdir, env=worker_env(), stdin=stdin, stdout=out, stderr=subprocess.STDOUT,
+                                        start_new_session=os.name != 'nt')
+            except OSError:
+                raise ProviderFailure('unavailable') from None
+            deadline = time.monotonic() + timeout
+            try:
+                while proc.poll() is None:
+                    if time.monotonic() >= deadline:
+                        raise ProviderFailure('timeout')
+                    time.sleep(0.05)
+            finally:
+                terminate_tree(proc)
+    finally:
+        if stdin is not subprocess.DEVNULL:
+            stdin.close()
+    if proc.returncode:
+        raise ProviderFailure('unavailable')
+    try:
+        return _answer_text(provider, workdir, log_path.read_text(encoding='utf-8', errors='replace'))
+    except (OSError, ValueError, AttributeError):
+        raise ProviderFailure('bad_output') from None

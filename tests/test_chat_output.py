@@ -69,6 +69,17 @@ class ParseOutputTests(unittest.TestCase):
         with self.assertRaises(ChatOutputError):
             self.parse(draft(related_task_id='../../etc'))
 
+    def test_flat_provider_shape_keeps_only_the_fields_of_its_kind(self):
+        flat = {'kind': 'reply', 'text': 'hello', 'files': [], 'questions': [], 'title': '', 'prompt': '', 'scope': [], 'accept': [],
+                'complexity': 0, 'provider': '', 'related_task_id': None}
+        self.assertEqual(self.parse(flat), {'kind': 'reply', 'text': 'hello', 'files': []})
+        self.assertEqual(self.parse({**flat, 'kind': 'clarify', 'text': '', 'questions': ['Which?']}), {'kind': 'clarify', 'questions': ['Which?']})
+        result = self.parse({**flat, 'kind': 'draft_task', 'text': 'ignored', 'title': 'T', 'prompt': 'P', 'scope': ['src'], 'accept': ['a'],
+                             'complexity': 3, 'related_task_id': ''})
+        self.assertEqual((result['kind'], result['provider'], result['related_task_id'], result['complexity']), ('draft_task', 'auto', None, 3))
+        with self.assertRaises(ChatOutputError):
+            self.parse({**flat, 'kind': 'draft_task', 'title': 'T', 'prompt': 'P', 'scope': ['elsewhere'], 'accept': ['a'], 'complexity': 3})
+
     def test_reply_files_outside_scope_are_dropped_not_fatal(self):
         result = self.parse({'kind': 'reply', 'text': 'x', 'files': ['src/a.py', 'secrets/.env', '../x', 'other/b.py']})
         self.assertEqual(result['files'], ['src/a.py'])
