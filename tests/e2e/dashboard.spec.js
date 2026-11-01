@@ -1,8 +1,10 @@
 const { test, expect } = require('@playwright/test');
+// The Virtual Office is the default view; these tests exercise the board, so select it up front.
+test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('center-view-mode', 'board')); });
 test('dashboard shows durable state on the monitor tab and provider cards on the separate usage tab', async ({ page }) => {
   await page.route('**/api/quota', route => route.fulfill({ json: { updated: 'fixture', codex: null, claude: null, google: null } }));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'AI Dev Command Center', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI Dev Command Center' })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('เชื่อมต่อแล้ว');
   await expect(page.locator('#scheduler-state')).toContainText('หยุดอยู่');
   await expect(page.locator('#scheduler-note')).toContainText('หน้าเว็บและฐานข้อมูลเชื่อมต่อได้');

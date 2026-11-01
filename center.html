@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Dev Command Center — Virtual Office</title>
   <link rel="stylesheet" href="/dashboard.css?v=2d_v3">
-  <script defer src="/dashboard.js?v=2d_v3"></script>
-  <script defer src="/office_game.js?v=2d_v14"></script>
+  <script defer src="/dashboard.js?v=2d_v4"></script>
+  <script defer src="/office_game.js?v=2d_v17"></script>
 </head>
 <body>
 <main>
@@ -29,7 +29,7 @@
     </div>
 
     <div class="header-actions">
-      <button id="refresh" type="button">🔄 อัปเดต</button>
+      <button id="refresh" type="button" aria-label="อัปเดตสถานะ">🔄 อัปเดต</button>
     </div>
   </header>
 
@@ -71,7 +71,7 @@
             <div class="pixel-brand">
               <span class="pixel-crown">👑</span>
               <strong class="pixel-logo">AI AGENT VIRTUAL OFFICE</strong>
-              <span class="pixel-quota-chip">⚡ LIVE WORKFLOW · 60FPS</span>
+              <span class="pixel-quota-chip" id="game-scheduler-chip">SCHEDULER · กำลังตรวจ...</span>
             </div>
             <div class="pixel-top-actions">
               <button id="btn-fullscreen" class="btn-fullscreen" type="button" title="ขยายเต็มจอ (F)">⛶ ขยายเต็มจอ</button>

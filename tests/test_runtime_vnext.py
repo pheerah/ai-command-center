@@ -54,6 +54,20 @@ class RuntimeVnextTests(unittest.TestCase):
         self.assertNotIn('claude', self.center.candidates(current, 'implementation'))
         self.assertIn('provider_circuit_opened', [row['event'] for row in self.center.report(task['id'])['events']])
 
+    def test_quota_health_follows_observed_usage_both_ways(self):
+        def reading(used, stale=False):
+            window = {'used_percent': used, 'remaining_percent': 100 - used, 'window_minutes': 300, 'resets_at': None}
+            return {'five_hour': window, 'weekly': {**window, 'window_minutes': 10080}, 'stale': stale}
+        self.center.set_provider('claude', 'unavailable', 'usage_exhausted')
+        self.assertEqual(self.center.reconcile_quota_health({'claude': reading(20, stale=True)}), {}, 'stale readings change nothing')
+        self.assertEqual(self.center.reconcile_quota_health({'claude': reading(20)}), {'claude': 'available'})
+        self.assertEqual(self.center.provider_status()['claude']['availability'], 'available')
+        self.assertEqual(self.center.reconcile_quota_health({'claude': reading(98)}), {'claude': 'unavailable'})
+        self.assertEqual(self.center.provider_status()['claude']['reason'], 'quota_low')
+        self.assertEqual(self.center.reconcile_quota_health({'claude': reading(10)}), {'claude': 'available'})
+        self.center.set_provider('claude', 'unavailable', 'auth')
+        self.assertEqual(self.center.reconcile_quota_health({'claude': reading(10)}), {}, 'a non-quota block is never lifted')
+
     def test_readiness_skips_dependency_and_requested_google_and_busy_provider(self):
         dependency = self.task()
         child = self.center.submit('project-a', 'Dependent', 'Wait for first task', ['src'], ['Dependency ready'], mode='mock', dependencies=[dependency['id']])

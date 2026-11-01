@@ -3323,7 +3323,7 @@ button:active {
    AGENT DETAIL MODAL (opens when a character is clicked)
    ============================================================================== */
 .agent-modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 50;
   display: flex;
@@ -3342,7 +3342,7 @@ button:active {
   display: flex;
   flex-direction: column;
   width: min(1040px, 100%);
-  max-height: 100%;
+  height: min(100%, 760px);
   background: #111827;
   border: 2px solid #ec4899;
   border-radius: 18px;
@@ -3359,8 +3359,8 @@ button:active {
 .agent-modal-content {
   display: grid;
   grid-template-columns: minmax(280px, 42%) 1fr;
+  flex: 1;
   min-height: 0;
-  overflow-y: auto;
 }
 
 .modal-left-portrait-col {
@@ -3368,13 +3368,15 @@ button:active {
   flex-direction: column;
   gap: 14px;
   padding: 20px;
+  min-height: 0;
   background: #0b1020;
 }
 
 .modal-big-photo-frame {
   position: relative;
-  aspect-ratio: 3 / 4;
-  max-height: 52vh;
+  flex: 1 1 0;
+  min-height: 120px;
+  width: min(100%, 420px);
   align-self: center;
   border-radius: 16px;
   border: 2px solid #ec4899;
@@ -3390,6 +3392,7 @@ button:active {
   height: 100%;
   object-fit: cover;
   display: block;
+  object-position: center top;
   scale: var(--ps, 1.09);
   translate: var(--px, 0) var(--py, 0);
 }
@@ -3563,4 +3566,91 @@ button:active {
 .btn-modal-wide {
   width: 100%;
   margin-top: 10px;
+}
+
+/* Header on narrow screens: nothing may be wider than the viewport */
+@media (max-width: 650px) {
+  .main-header > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .brand-zone h1,
+  .brand-zone p {
+    overflow-wrap: anywhere;
+  }
+  .dispatch-bar {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .dispatch-input-group {
+    flex-wrap: wrap;
+  }
+  #dispatch-project {
+    flex: 1 1 100%;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid #334155;
+  }
+  #dispatch-prompt {
+    min-width: 0;
+  }
+}
+
+/* Office view: the office is the page; monitor-only panels step aside */
+body.office-mode main {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+body.office-mode .main-header {
+  margin-bottom: 8px;
+}
+
+body.office-mode .main-header p,
+body.office-mode .main-header .eyebrow,
+body.office-mode .overview,
+body.office-mode .status-chips,
+body.office-mode #scheduler-info {
+  display: none;
+}
+
+body.office-mode #panel-monitor:not([hidden]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+body.office-mode .virtual-office-wrap:not([hidden]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+body.office-mode .pixel-office-workspace {
+  flex: 1;
+  height: auto;
+  min-height: 560px;
+}
+
+.pixel-quota-chip.stopped {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+body.office-mode .brand-zone h1 {
+  font-size: 20px;
+}
+
+body.office-mode #health {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+body.office-mode .view-switcher-bar {
+  margin-bottom: 8px;
 }

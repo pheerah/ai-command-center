@@ -116,7 +116,10 @@ def serve(center, mode):
 
         def watch_quota():
             while not stop.exists():
-                center_quota.refresh(center.store.state)
+                try:
+                    center.reconcile_quota_health(center_quota.refresh(center.store.state))
+                except Exception:  # the meter must never stop the scheduler
+                    pass
                 time.sleep(60)
         threading.Thread(target=watch_quota, name='quota-meter', daemon=True).start()
     try:
@@ -170,8 +173,9 @@ def serve(center, mode):
 
 
 def main():
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    for stream in (sys.stdin, sys.stdout):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Local SQLite AI Dev Command Center")
     parser.add_argument("--state-dir")
     parser.add_argument("--config", dest="center_config")

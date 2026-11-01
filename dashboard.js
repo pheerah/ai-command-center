@@ -808,6 +808,7 @@ function selectViewMode(mode) {
   const btnOffice = el('btn-view-office');
   const btnBoard = el('btn-view-board');
 
+  document.body.classList.toggle('office-mode', isOffice);
   if (officeSection) officeSection.hidden = !isOffice;
   if (boardSection) boardSection.hidden = isOffice;
   if (btnOffice) btnOffice.classList.toggle('active', isOffice);
@@ -882,6 +883,7 @@ function initQuickDispatch() {
 }
 
 async function refresh() {
+  window.refresh = refresh;
   if (refreshing) return;
   refreshing = true;
   el('refresh').disabled = true;

@@ -267,8 +267,8 @@
       photoUrl: '/assets/sec_double_slit.png',
       photoImg: photos.doubleSlit,
       zone: 'OPS ROOM',
-      x: 0.74, y: 0.66,
-      baseX: 0.74, baseY: 0.66,
+      x: 0.68, y: 0.74,
+      baseX: 0.68, baseY: 0.74,
       state: 'sitting',
       hairColor: '#0ea5e9',
       hairStyle: 'long',
@@ -291,8 +291,8 @@
       photoUrl: '/assets/sec_dark_glasses.jpg',
       photoImg: photos.darkGlasses,
       zone: 'OPS ROOM',
-      x: 0.88, y: 0.66,
-      baseX: 0.88, baseY: 0.66,
+      x: 0.76, y: 0.74,
+      baseX: 0.76, baseY: 0.74,
       state: 'sitting',
       hairColor: '#f97316',
       hairStyle: 'twintail',
@@ -316,8 +316,8 @@
       photoUrl: '/assets/sec_blonde_suit.png',
       photoImg: photos.blondeSuit,
       zone: 'OPS ROOM',
-      x: 0.74, y: 0.88,
-      baseX: 0.74, baseY: 0.88,
+      x: 0.84, y: 0.74,
+      baseX: 0.84, baseY: 0.74,
       state: 'sitting',
       hairColor: '#ef4444',
       hairStyle: 'long',
@@ -340,8 +340,8 @@
       photoUrl: '/assets/sec_purple_hair.png',
       photoImg: photos.purpleHair,
       zone: 'OPS ROOM',
-      x: 0.88, y: 0.88,
-      baseX: 0.88, baseY: 0.88,
+      x: 0.92, y: 0.74,
+      baseX: 0.92, baseY: 0.74,
       state: 'sitting',
       hairColor: '#a855f7',
       hairStyle: 'long',
@@ -511,23 +511,29 @@
         }
 
         const quoteEl = document.getElementById('modal-quote-text');
-        if (quoteEl) {
-          quoteEl.textContent = `"${selectedEntity.name.split(' ')[0]} รับคำสั่งงานโปรเจกต์ [${proj}] เรียบร้อยค่ะ: '${prompt}' กำลังส่งให้ AI เริ่มลุยทันทีนะคะ 💕"`;
-        }
+        const firstName = selectedEntity.name.split(' ')[0];
+        const setQuote = (text) => { if (quoteEl) quoteEl.textContent = text; };
+        setQuote(`"${firstName} กำลังวางแผนและส่งงาน [${proj}]: '${prompt}' รอสักครู่นะคะ ⏳"`);
 
         fetch('/api/dispatch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_id: proj, prompt: prompt })
         })
-        .then(res => res.json())
-        .then(data => {
-          if (data.ok) {
-            playCuteSound(1046, 'sine', 0.25);
-            if (window.refresh) window.refresh();
+        .then(async res => ({ res, data: await res.json().catch(() => ({})) }))
+        .then(({ res, data }) => {
+          if (!res.ok || !data.ok) {
+            setQuote(`"ส่งงานไม่สำเร็จค่ะ: ${String(data.error || res.status).slice(0, 300)}"`);
+            return;
           }
+          playCuteSound(1046, 'sine', 0.25);
+          setQuote(`"${firstName} ส่งงานโปรเจกต์ [${proj}] เรียบร้อยแล้วค่ะ: '${prompt}' 💕"`);
+          if (window.refresh) window.refresh();
         })
-        .catch(err => console.error('Dispatch error:', err));
+        .catch(err => {
+          console.error('Dispatch error:', err);
+          setQuote(`"เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ค่ะ: ${err.message}"`);
+        });
       };
 
       cmdSend.onclick = handleSend;
@@ -892,9 +898,18 @@
 
     updateDoingLabels(sessions, tasks);
     refreshEnergy();
+    renderSchedulerChip(snap.service);
 
     // Update Courier Maid Mia Movement
     updateBotMovement(characters.mia, miaWaypoints, 0.0016);
+  }
+
+  function renderSchedulerChip(service) {
+    const chip = document.getElementById('game-scheduler-chip');
+    if (!chip) return;
+    const running = !!service && service.running === true;
+    chip.textContent = running ? 'SCHEDULER · ทำงานอยู่' : 'SCHEDULER · หยุดอยู่';
+    chip.classList.toggle('stopped', !running);
   }
 
   // SYSTEM ENERGY bar: the lowest remaining quota window across providers (real data from /api/quota)
@@ -1295,8 +1310,7 @@
   // otherwise the portrait is cropped to the upper body with feathered edges.
   // ==============================================================================
 
-  const SPRITE_H = 92;
-  const SPRITE_FULL_H = 128;
+  const SPRITE_H = 96;
   const spriteCache = {};
 
   function buildFeatheredSprite(img) {
@@ -1365,7 +1379,8 @@
     const img = sprite.img;
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
-    const h = (sprite.full ? SPRITE_FULL_H : SPRITE_H) * (isHovered ? 1.05 : 1);
+    const base = Math.max(60, Math.min(SPRITE_H, height * 0.15));
+    const h = (sprite.full ? base * 1.4 : base) * (isHovered ? 1.05 : 1);
     const w = h * iw / ih;
     const breathe = Math.sin(tick * 0.06 + char.x * 12) * 1.2;
     const bottom = y + 14;
@@ -1728,7 +1743,7 @@
     const w3 = ctx.measureText(line3).width;
     const pw = Math.max(w1 + 22, w2 + 14, w3 + 14);
     const ph = 41;
-    const top = nameY - 26;
+    const top = Math.max(2, nameY - 26);
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
     ctx.strokeStyle = (isSelected || isHovered) ? '#ec4899' : color;

@@ -1151,6 +1151,36 @@ class Center(RecoveryMixin, RoutingMixin, ReportMixin):
         floor = self.config.get('quota_floor') or {}
         return {'five_hour': float(floor.get('five_hour', 10)), 'weekly': float(floor.get('weekly', 15))}
 
+    QUOTA_MANAGED = ('usage_exhausted', 'quota_low')
+
+    def reconcile_quota_health(self, readings):
+        """Keep availability in step with observed quota: low -> unavailable, recovered -> available.
+
+        Only rows Center itself opened for quota (or that never had an override) are touched, so a manual or auth/config
+        block is never lifted. Stale or unknown readings change nothing.
+        """
+        changed = {}
+        with self.store.connection(write=True) as con:
+            rows = {r['provider']: r for r in con.execute('SELECT * FROM provider_health')}
+            for name, cfg in self.config['providers'].items():
+                reading = (readings or {}).get(name)
+                if not reading or reading.get('stale'):
+                    continue
+                ok, detail = center_quota.floor_check(reading, self.quota_floors())
+                row = rows.get(name)
+                current = row['availability'] if row else cfg.get('availability')
+                reason = row['reason'] if row else None
+                if not ok and current != 'unavailable':
+                    target, why = 'unavailable', 'quota_low'
+                elif ok and current == 'unavailable' and reason in self.QUOTA_MANAGED:
+                    target, why = 'available', 'quota_recovered'
+                else:
+                    continue
+                con.execute('INSERT INTO provider_health VALUES(?,?,?,?,?) ON CONFLICT(provider) DO UPDATE SET availability=excluded.availability,reason=excluded.reason,cooldown_until=0,updated_at=excluded.updated_at',
+                            (name, target, why, 0, now()))
+                changed[name] = target
+        return changed
+
     def usable_capacity(self):
         return center_capacity.effective_capacity(self.config['global_capacity'], center_capacity.reserved_sessions(self.config))
 
