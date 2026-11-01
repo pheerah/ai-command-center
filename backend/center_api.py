@@ -17,6 +17,8 @@ import secrets
 import time
 from pathlib import Path
 
+import center_chat
+import center_chat_store as chat_store
 from center_store import now
 from center_workspace import safe_relative
 
@@ -268,6 +270,8 @@ def call(center, project_id, op, task_id=None, body=None):
         if claim:
             _settle_request(center, key, claim, task['id'])
         return {'task': public_task(task)}
+    if op in ('chat', 'chat_history', 'chat_confirm'):
+        return _chat(center, project_id, op, body)
     if op == 'list':
         with center.store.connection() as con:
             rows = [dict(r) for r in con.execute('SELECT * FROM tasks WHERE project_id=? ORDER BY created_at DESC LIMIT 50', (project_id,))]
@@ -281,6 +285,29 @@ def call(center, project_id, op, task_id=None, body=None):
     if op == 'patch':
         return export_patch(center, project_id, task_id)
     raise ApiError('Unknown operation')
+
+
+def _chat(center, project_id, op, body):
+    """Secretary chat operations (dashboard only: server.js does not route them for project tokens)."""
+    if not isinstance(body, dict):
+        raise ApiError('Body must be an object')
+    if op == 'chat_history':
+        return {'messages': chat_store.history(center.store, project_id, 100)}
+    if op == 'chat':
+        message, turn = body.get('message'), body.get('client_turn_id')
+        if not isinstance(message, str) or not isinstance(turn, str):
+            raise ApiError('message and client_turn_id are required strings')
+        return center_chat.run_turn(center, project_id, message, turn)
+    message_id = body.get('message_id')
+    try:
+        submit_body, _ = center_chat.prepare_confirmation(center, project_id, message_id, body.get('edits'))
+    except center_chat.AlreadyConfirmed as done:
+        return {'task': public_task(center.store.task(done.task_id)), 'duplicate_request': True}
+    except ValueError as exc:
+        raise ApiError(str(exc)) from None
+    answer = call(center, project_id, 'submit', body=submit_body)
+    chat_store.mark_confirmed(center.store, message_id, answer['task']['id'])
+    return answer
 
 
 CLAIM_PENDING = 'pending:'

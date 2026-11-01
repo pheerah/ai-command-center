@@ -470,3 +470,39 @@ def run_turn(center, project_id, message, turn_id, runner=None):
     row_id = chat_store.add_message(store, project_id, turn_id, 'secretary', kind, body, provider)
     chat_store.trim(store, project_id)
     return chat_store.message(store, project_id, row_id)
+
+
+# ---- confirming a draft ----------------------------------------------------------------------------------------------------
+
+EDITABLE = ('title', 'prompt', 'scope', 'accept', 'complexity')
+
+
+class AlreadyConfirmed(Exception):
+    """The draft already became a task; `task_id` is that task."""
+
+    def __init__(self, task_id):
+        super().__init__(task_id)
+        self.task_id = task_id
+
+
+def prepare_confirmation(center, project_id, message_id, edits=None):
+    """Check that `message_id` is an unconfirmed draft of this project and build the body for the normal submit path.
+
+    Returns (submit_body, draft_row). The request_id makes submit itself refuse to create a second task for the same draft.
+    """
+    if type(message_id) is not int:
+        raise ValueError('message_id must be an integer')
+    if edits is not None and (not isinstance(edits, dict) or set(edits) - set(EDITABLE)):
+        raise ValueError('edits may only change ' + ', '.join(EDITABLE))
+    row = chat_store.message(center.store, project_id, message_id)
+    if not row or row['role'] != 'secretary' or row['kind'] != 'draft_task':
+        raise ValueError('Draft not found')
+    if row['task_id']:
+        raise AlreadyConfirmed(row['task_id'])
+    draft = json.loads(row['body'])
+    values = {key: draft[key] for key in EDITABLE}
+    values.update(edits or {})
+    if isinstance(values['prompt'], str) and draft.get('related_task_id'):
+        values['prompt'] = values['prompt'] + '\n\nRelated task: ' + draft['related_task_id']
+    body = {**values, 'provider': draft.get('provider') or 'auto', 'request_id': f'chat-{message_id:08d}'}
+    return body, row
