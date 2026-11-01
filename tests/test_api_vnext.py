@@ -4,6 +4,8 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import time
+import threading
 import unittest
 from pathlib import Path
 
@@ -156,6 +158,33 @@ class ApiTests(unittest.TestCase):
         self.assertFalse(self.submit(request_id='bad id!')['ok'])
         # The same id from another project is a different request, not a leak.
         self.assertNotEqual(self.submit('beta', request_id='retry-0000001')['data']['task']['id'], first['task']['id'])
+
+    def test_concurrent_submits_with_the_same_request_id_create_one_task(self):
+        barrier = threading.Barrier(4)
+        answers = []
+
+        def go():
+            barrier.wait()
+            answers.append(self.submit(request_id='race-0000001'))
+
+        threads = [threading.Thread(target=go) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        self.assertEqual(len(answers), 4)
+        self.assertTrue(all(answer['ok'] for answer in answers), answers)
+        self.assertEqual(len({answer['data']['task']['id'] for answer in answers}), 1)
+        with self.center.store.connection() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM tasks WHERE project_id='alpha'").fetchone()[0], 1)
+
+    def test_a_stale_request_claim_from_a_crashed_submit_is_taken_over(self):
+        key = 'api_req:alpha:stale-000001'
+        with self.center.store.connection(write=True) as con:
+            con.execute('INSERT INTO center_meta(key,value) VALUES(?,?)', (key, f'pending:{time.time() - 3600}:dead'))
+        answer = self.submit(request_id='stale-000001')
+        self.assertTrue(answer['ok'], answer)
+        self.assertFalse(answer['data'].get('duplicate_request'))
 
     def test_a_project_cannot_flood_the_queue(self):
         for index in range(center_api.MAX_ACTIVE_TASKS):

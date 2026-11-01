@@ -248,20 +248,25 @@ def call(center, project_id, op, task_id=None, body=None):
         if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', request_id)):
             raise ApiError('request_id must be 8-64 letters, digits, _ or -')
         key = f'api_req:{project_id}:{request_id}' if request_id else None
-        with center.store.connection() as con:
-            if key:
-                known = con.execute('SELECT value FROM center_meta WHERE key=?', (key,)).fetchone()
-                if known:  # a retried request returns the original task instead of creating a duplicate
-                    return {'task': public_task(center.store.task(known[0])), 'duplicate_request': True}
-            active = con.execute("SELECT COUNT(*) FROM tasks WHERE project_id=? AND status NOT IN ('approved','cancelled','failed','blocked','rejected','ready_for_human_approval')", (project_id,)).fetchone()[0]
-        if active >= MAX_ACTIVE_TASKS:
-            raise ApiError(f'Too many active tasks for this project (limit {MAX_ACTIVE_TASKS}); wait for some to finish')
-        read_files = _strings(body, 'read_files', 20, 200, required=False)
-        task = center.submit(project_id, _text(body, 'title', 200), _text(body, 'prompt', 12000), _strings(body, 'scope', 20, 200),
-                             _strings(body, 'accept', 20, 500), provider, 'live', depends, complexity, read_set=read_files or None)
+        claim = None
         if key:
-            with center.store.connection(write=True) as con:
-                con.execute('INSERT OR REPLACE INTO center_meta(key,value) VALUES(?,?)', (key, task['id']))
+            known, claim = _claim_request(center, key)
+            if known:  # a retried request returns the original task instead of creating a duplicate
+                return {'task': public_task(center.store.task(known)), 'duplicate_request': True}
+        try:
+            with center.store.connection() as con:
+                active = con.execute("SELECT COUNT(*) FROM tasks WHERE project_id=? AND status NOT IN ('approved','cancelled','failed','blocked','rejected','ready_for_human_approval')", (project_id,)).fetchone()[0]
+            if active >= MAX_ACTIVE_TASKS:
+                raise ApiError(f'Too many active tasks for this project (limit {MAX_ACTIVE_TASKS}); wait for some to finish')
+            read_files = _strings(body, 'read_files', 20, 200, required=False)
+            task = center.submit(project_id, _text(body, 'title', 200), _text(body, 'prompt', 12000), _strings(body, 'scope', 20, 200),
+                                 _strings(body, 'accept', 20, 500), provider, 'live', depends, complexity, read_set=read_files or None)
+        except BaseException:
+            if claim:
+                _settle_request(center, key, claim, None)
+            raise
+        if claim:
+            _settle_request(center, key, claim, task['id'])
         return {'task': public_task(task)}
     if op == 'list':
         with center.store.connection() as con:
@@ -276,6 +281,43 @@ def call(center, project_id, op, task_id=None, body=None):
     if op == 'patch':
         return export_patch(center, project_id, task_id)
     raise ApiError('Unknown operation')
+
+
+CLAIM_PENDING = 'pending:'
+CLAIM_STALE_SECONDS = 120
+
+
+def _claim_request(center, key):
+    """Reserve a request_id before the task exists, so concurrent retries cannot each create one.
+
+    Returns (task_id, None) when an earlier call already created the task, else (None, claim) when this call owns the claim.
+    """
+    claim = f'{CLAIM_PENDING}{time.time()}:{secrets.token_hex(6)}'
+    deadline = time.monotonic() + 30
+    while True:
+        with center.store.connection(write=True) as con:
+            con.execute('INSERT OR IGNORE INTO center_meta(key,value) VALUES(?,?)', (key, claim))
+            value = con.execute('SELECT value FROM center_meta WHERE key=?', (key,)).fetchone()[0]
+            if value == claim:
+                return None, claim
+            if not value.startswith(CLAIM_PENDING):
+                return value, None
+            started = float(value[len(CLAIM_PENDING):].split(':', 1)[0] or 0)
+            if time.time() - started > CLAIM_STALE_SECONDS:  # the first caller died before it created the task
+                con.execute('UPDATE center_meta SET value=? WHERE key=? AND value=?', (claim, key, value))
+                continue
+        if time.monotonic() > deadline:
+            raise ApiError('The same request is still being processed; retry shortly')
+        time.sleep(0.05)
+
+
+def _settle_request(center, key, claim, task_id):
+    """Record the created task under the claim, or drop the claim when creating it failed."""
+    with center.store.connection(write=True) as con:
+        if task_id:
+            con.execute('UPDATE center_meta SET value=? WHERE key=? AND value=?', (task_id, key, claim))
+        else:
+            con.execute('DELETE FROM center_meta WHERE key=? AND value=?', (key, claim))
 
 
 PATHLIKE = re.compile(r'(?:[A-Za-z]:[\\/]|/(?:Users|home|tmp|var|etc|mnt)/)[^\s"\'<>|]*')
