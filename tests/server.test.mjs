@@ -17,7 +17,15 @@ beforeAll(async () => { server = createServer(); await new Promise(resolve => se
 afterAll(async () => { await new Promise(resolve => server.close(resolve)); if (!state.startsWith(path.resolve(tmpdir()) + path.sep)) throw new Error('Unsafe cleanup path'); rmSync(state, { recursive: true, force: true }); });
 describe('read-only Center dashboard', () => {
   it('serves the operational dashboard', async () => { const r = await fetch(base); expect(r.status).toBe(200); expect(await r.text()).toContain('AI Dev Command Center'); });
-  it('serves the combined usage dashboard assets with a strict content policy', async () => { const r = await fetch(base); expect(await r.text()).toContain('Usage Meter'); expect(r.headers.get('content-security-policy')).not.toContain('unsafe-inline'); expect((await fetch(base + '/dashboard.js')).status).toBe(200); expect((await fetch(base + '/dashboard.css')).status).toBe(200); });
+  it('serves the combined usage dashboard assets with a strict content policy', async () => { const r = await fetch(base); expect(await r.text()).toContain('Usage Meter'); expect(r.headers.get('content-security-policy')).not.toContain('unsafe-inline'); expect((await fetch(base + '/js/dashboard.js')).status).toBe(200); expect((await fetch(base + '/css/dashboard.css')).status).toBe(200); });
+  it('serves static files only from web/ and refuses traversal, backslashes and unknown types', async () => {
+    for (const bad of ['/assets/..%5c..%5cpackage.json', '/..%2f..%2fpackage.json', '/assets/%2e%2e/%2e%2e/package.json', '/js/..%5c..%5cserver.js', '/assets/full/README.md', '/server.js', '/package.json']) {
+      const r = await fetch(base + bad);
+      expect(r.status, bad).toBe(404);
+    }
+    expect((await fetch(base + '/assets/sec_white_blouse.png')).headers.get('content-type')).toBe('image/png');
+  });
+  it('lists which optional sprite images exist', async () => { const r = await fetch(base + '/api/sprites'); const d = await r.json(); expect(Array.isArray(d.cutout)).toBe(true); expect(Array.isArray(d.full)).toBe(true); expect(d.full).not.toContain('README'); });
   it('reads actual SQLite state without claiming a stopped scheduler is ready', async () => { const r = await fetch(base + '/api/health'); const data = await r.json(); expect(data).toMatchObject({ ok: true, backend: 'available', database: 'available', storage: 'sqlite', live_execution: false, ready: false, service: { running: false } }); });
   it('reports running scheduler mode and heartbeat separately from backend health', async () => {
     const fixture = createServer({ readSnapshot: async () => ({ storage: 'sqlite', live_execution: true, service: { running: true, mode: 'live', heartbeat_age_seconds: 2, reason: 'running' } }) });

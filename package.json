@@ -7,7 +7,7 @@
     "test": "vitest run",
     "test:python": "node scripts/python-tests.js",
     "test:e2e": "playwright test",
-    "lint": "eslint server.js dashboard.js scripts tests *.config.*",
+    "lint": "eslint server.js web/js scripts tests *.config.js *.config.cjs",
     "build": "node scripts/build.js",
     "start": "node server.js",
     "demo": "node scripts/demo.js"

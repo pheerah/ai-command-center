@@ -950,7 +950,6 @@
 
   // Short "what is she doing right now" text shown under each name pill
   function updateDoingLabels(sessions, tasks) {
-    const title = (t) => `${t.project_id ? '[' + t.project_id + '] ' : ''}${t.title || ''}`;
     const taskOf = (sess) => sess && tasks.find(x => x.id === sess.task_id);
     const set = (id, text) => { if (characters[id]) characters[id].doing = text || ''; };
 
@@ -1346,21 +1345,29 @@
     return c;
   }
 
+  // Which optional sprite tiers exist on disk; loaded once from the server so no request targets a missing file.
+  let availableSprites = null;
+  fetch('/api/sprites')
+    .then(res => res.json())
+    .then(list => { availableSprites = { cutout: new Set(list.cutout || []), full: new Set(list.full || []) }; })
+    .catch(() => { availableSprites = { cutout: new Set(), full: new Set() }; });
+
+  function loadSpriteTier(entry, tier, name) {
+    const img = new Image();
+    img.onload = () => { entry[tier] = img; };
+    img.src = `/assets/${tier}/${name}.png`;
+  }
+
   function getPhotoSprite(char) {
     const key = char.photoUrl;
-    if (!key) return null;
+    if (!key || !availableSprites) return null;
     let entry = spriteCache[key];
     if (!entry) {
       entry = spriteCache[key] = { full: null, cutout: null, feathered: null };
       const name = key.split('/').pop().replace(/\.[a-z]+$/i, '');
-      const full = new Image();
-      full.onload = () => { entry.full = full; };
-      full.onerror = () => {};
-      full.src = `/assets/full/${name}.png`;
-      const cut = new Image();
-      cut.onload = () => { entry.cutout = cut; };
-      cut.onerror = () => {};
-      cut.src = `/assets/cutout/${name}.png`;
+      for (const tier of ['full', 'cutout']) {
+        if (availableSprites[tier].has(name)) loadSpriteTier(entry, tier, name);
+      }
     }
     if (entry.full) return { img: entry.full, full: true };
     if (entry.cutout) return { img: entry.cutout, cutout: true };

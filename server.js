@@ -10,6 +10,44 @@ const PORT = Number(process.env.PORT || 3939);
 const localPython = path.join(ROOT, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const PYTHON = process.env.AI_CENTER_PYTHON || (fs.existsSync(localPython) ? localPython : path.join(ROOT, '..', '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'));
 
+const WEB_ROOT = path.join(ROOT, 'web');
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml',
+};
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.svg']);
+
+// The one place that maps a URL to a file under web/. Anything that resolves outside it, uses a backslash,
+// has an unknown extension or is a link pointing elsewhere is refused.
+function resolveWebFile(pathname) {
+  let rel;
+  try { rel = decodeURIComponent(pathname); } catch { return null; }
+  if (rel === '/' || rel === '/center.html') rel = '/index.html';
+  if (rel.includes('\u0000') || rel.includes('\\')) return null;
+  const file = path.resolve(WEB_ROOT, '.' + rel);
+  if (!file.startsWith(WEB_ROOT + path.sep) || !MIME[path.extname(file).toLowerCase()]) return null;
+  try {
+    const real = fs.realpathSync(file);
+    return real.startsWith(fs.realpathSync(WEB_ROOT) + path.sep) && fs.statSync(real).isFile() ? real : null;
+  } catch { return null; }
+}
+
+function serveStatic(res, pathname) {
+  const file = resolveWebFile(pathname);
+  if (!file) { res.writeHead(404).end('Not found'); return; }
+  const ext = path.extname(file).toLowerCase();
+  const headers = { 'Content-Type': MIME[ext] };
+  if (IMAGE_EXTENSIONS.has(ext)) headers['Cache-Control'] = 'public, max-age=86400';
+  res.writeHead(200, headers);
+  res.end(fs.readFileSync(file));
+}
+
+// Which optional sprite images exist, so the browser only requests files that are there.
+function listSprites() {
+  const names = (dir) => { try { return fs.readdirSync(path.join(WEB_ROOT, 'assets', dir)).filter(f => /\.png$/i.test(f)).map(f => f.replace(/\.png$/i, '')); } catch { return []; } };
+  return { cutout: names('cutout'), full: names('full') };
+}
+
 function snapshot(taskId) {
   const args = [path.join(ROOT, 'smart_router.py')];
   if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
@@ -186,7 +224,7 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       try {
         const raw = await readBody(req);
         body = JSON.parse(raw);
-      } catch (e) {
+      } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'Invalid JSON body' }));
         return;
       }
@@ -250,24 +288,10 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       return;
     }
     try {
-      if (url.pathname === '/' || url.pathname === '/center.html') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(fs.readFileSync(path.join(ROOT, 'center.html')));
-      } else if (['/dashboard.js', '/office_game.js', '/dashboard.css'].includes(url.pathname)) {
-        const filename = url.pathname.slice(1);
-        res.writeHead(200, { 'Content-Type': filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8' });
-        res.end(fs.readFileSync(path.join(ROOT, filename)));
-      } else if (url.pathname.startsWith('/assets/')) {
-        const filePath = path.join(ROOT, url.pathname);
-        if (fs.existsSync(filePath)) {
-          const ext = path.extname(filePath).toLowerCase();
-          const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : ext === '.js' ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
-          const cacheHeader = ext === '.js' ? 'no-cache, no-store, must-revalidate' : 'public, max-age=86400';
-          res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': cacheHeader });
-          res.end(fs.readFileSync(filePath));
-        } else {
-          res.writeHead(404).end('Not found');
-        }
+      if (!url.pathname.startsWith('/api/')) {
+        serveStatic(res, url.pathname);
+      } else if (url.pathname === '/api/sprites') {
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(listSprites()));
       } else if (url.pathname === '/api/health') {
         const data = await readSnapshot();
         const service = data.service || { running: false, mode: 'unknown', reason: 'not_observed', heartbeat_age_seconds: null };

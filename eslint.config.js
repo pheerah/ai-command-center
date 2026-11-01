@@ -1,10 +1,13 @@
 const js = require('@eslint/js');
 
+const BROWSER_GLOBALS = Object.fromEntries(['AudioContext', 'Image', 'alert', 'confirm', 'Option', 'clearTimeout', 'console', 'document', 'fetch', 'history', 'localStorage', 'location', 'navigator', 'performance', 'requestAnimationFrame', 'setInterval', 'setTimeout', 'webkitAudioContext', 'window'].map(name => [name, 'readonly']));
+
 module.exports = [
   { ignores: ['dist/**', 'node_modules/**', '.worktrees/**', '.ai-team/**'] },
   js.configs.recommended,
-  { files: ['dashboard.js'], languageOptions: { globals: { document: 'readonly', fetch: 'readonly', setInterval: 'readonly', Option: 'readonly', history: 'readonly', location: 'readonly', localStorage: 'readonly', window: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly' } } },
-  { files: ['tests/e2e/**/*.js'], languageOptions: { globals: { document: 'readonly', window: 'readonly' } } },
+  { rules: { 'no-empty': ['error', { allowEmptyCatch: true }] } },
+  { files: ['web/js/**/*.js'], languageOptions: { globals: BROWSER_GLOBALS } },
+  { files: ['tests/e2e/**/*.js'], languageOptions: { globals: { document: 'readonly', localStorage: 'readonly', window: 'readonly' } } },
   { files: ['**/*.mjs'], languageOptions: { globals: { process: 'readonly', fetch: 'readonly', setTimeout: 'readonly' } } },
   {
     files: ['server.js', 'scripts/**/*.js', 'tests/**/*.js', '*.config.cjs', '*.config.js'],
