@@ -882,6 +882,47 @@ function initQuickDispatch() {
   }
 }
 
+// Hiding tasks is a view setting for this browser only: the Center keeps every task and its evidence.
+const HIDDEN_TASKS_KEY = 'center-hidden-tasks';
+
+function readHiddenTasks() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(HIDDEN_TASKS_KEY) || '[]');
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeHiddenTasks(ids) {
+  try { localStorage.setItem(HIDDEN_TASKS_KEY, JSON.stringify([...ids])); } catch {}
+}
+
+function applyHiddenTasks(data) {
+  const hidden = readHiddenTasks();
+  const all = data.tasks || [];
+  data.tasks = all.filter(task => !hidden.has(task.id));
+  data.hidden_task_count = all.length - data.tasks.length;
+  const showHidden = el('show-hidden');
+  if (showHidden) {
+    showHidden.hidden = data.hidden_task_count === 0;
+    showHidden.textContent = `👁 แสดงงานที่ซ่อน (${data.hidden_task_count})`;
+  }
+  return data;
+}
+
+function clearScreen() {
+  const hidden = readHiddenTasks();
+  for (const task of (window.snapshot?.tasks || [])) hidden.add(task.id);
+  writeHiddenTasks(hidden);
+  refresh();
+}
+
+function showHiddenTasks() {
+  writeHiddenTasks(new Set());
+  refresh();
+}
+
 async function refresh() {
   window.refresh = refresh;
   if (refreshing) return;
@@ -890,7 +931,7 @@ async function refresh() {
   try {
     const response = await fetch('/api/status');
     if (!response.ok) throw new Error('unavailable');
-    snapshot = await response.json();
+    snapshot = applyHiddenTasks(await response.json());
     window.snapshot = snapshot;
     el('health').className = '';
     el('health').textContent = 'เชื่อมต่อแล้ว · อัปเดต ' + new Date(snapshot.updated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -943,6 +984,8 @@ el('task-status').addEventListener('change', renderTasks);
 // Initialize Virtual Office View Mode and Quick Dispatch
 const btnViewOffice = el('btn-view-office');
 const btnViewBoard = el('btn-view-board');
+el('clear-screen').addEventListener('click', clearScreen);
+el('show-hidden').addEventListener('click', showHiddenTasks);
 if (btnViewOffice) btnViewOffice.addEventListener('click', () => selectViewMode('office'));
 if (btnViewBoard) btnViewBoard.addEventListener('click', () => selectViewMode('board'));
 selectViewMode(initialViewMode());

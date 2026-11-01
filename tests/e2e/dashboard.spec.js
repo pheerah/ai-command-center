@@ -273,3 +273,14 @@ test('a stale scheduler heartbeat is visible even while the backend responds', a
   await expect(page.locator('#scheduler-state')).toContainText('หยุดอยู่');
   await expect(page.locator('#scheduler-note')).toContainText('ไม่ได้รับสัญญาณล่าสุด');
 });
+test('clear screen hides every task on this browser and can bring them back', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#tasks')).toContainText('sample-a');
+  await page.getByRole('button', { name: '🧹 ล้างหน้าจอ' }).click();
+  await expect(page.locator('#tasks')).not.toContainText('sample-a');
+  await expect(page.locator('#approval-count')).toHaveText('0');
+  await page.reload();
+  await expect(page.locator('#tasks')).not.toContainText('sample-a');
+  await page.getByRole('button', { name: /แสดงงานที่ซ่อน/ }).click();
+  await expect(page.locator('#tasks')).toContainText('sample-a');
+});
