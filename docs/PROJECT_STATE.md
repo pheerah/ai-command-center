@@ -101,6 +101,12 @@
 
 ยังเปิดอยู่: ทดสอบ hook กับส่วนขยาย VS Code จริง, Bash guard ยังเป็น heuristic, การ attest/อนุมัติใช้ TTY ซึ่ง agent บนเครื่องเดียวกันเลียนแบบได้, ยังไม่ได้ติดตั้งลงโปรเจกต์จริง, ยังไม่ได้ commit, adaptive concurrency ตาม RAM/CPU ยังไม่ได้ทำ (ผู้ใช้เลือกแค่การสำรองจำนวน)
 
+## แชทเลขาฯ AI (2 พ.ย. 2026)
+
+- ทำครบตาม spec A: `backend/center_chat.py`, `backend/center_chat_store.py`, op `chat` / `chat_history` / `chat_confirm` ใน `center_api.py`, route `/api/chat*` ใน `server.js` (เฉพาะ dashboard, token ของโปรเจกต์เข้าไม่ถึง), `web/js/chat.js`
+- ทดสอบแล้ว: เทสต์ Python `test_chat_*.py` (provider จำลอง), vitest, Playwright `secretary-chat.spec.js` ด้วย mock adapter
+- **ยังไม่ได้ทดสอบกับ provider จริง** ดูผล probe ในหัวข้อถัดไป (ถ้าไม่มี แปลว่ายังไม่ได้รัน)
+
 ## Antigravity / ขอบเขตที่ยังไม่อ้างว่าพิสูจน์แล้ว
 
 - ตรวจเอกสารทางการปัจจุบันและ `agy --help` แบบไม่เรียกโมเดลแล้ว `.agents/rules/*.md` มี trigger=always_on; skills มี name/description และตำแหน่งตรง discovery format
