@@ -6,7 +6,7 @@ import tempfile
 import unittest
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from center_usage import parse_usage, usage_report
 
 

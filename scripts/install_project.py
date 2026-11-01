@@ -21,7 +21,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 TEMPLATE = ROOT / 'connector-template'
 BEGIN, END = '<!-- ai-command-center:begin -->', '<!-- ai-command-center:end -->'
 LOCAL_ONLY = ('/connector.py', '/project.config.json', '/center.connection.json', '/.claude/settings.local.json',

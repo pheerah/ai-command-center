@@ -6,6 +6,9 @@ import unittest
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'backend'))
 import center_policy
 import center_quota
 from center_runtime import Center, load_config

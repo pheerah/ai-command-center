@@ -5,6 +5,9 @@ import sqlite3
 import unittest
 from unittest.mock import MagicMock, patch
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'backend'))
 from center_resources import PORT_PREFIX, preparation_plan, release_port, reserve_port
 
 

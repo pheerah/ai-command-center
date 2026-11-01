@@ -23,7 +23,8 @@ from center_recovery import RecoveryMixin
 from center_reporting import ReportMixin
 from center_routing import RoutingMixin
 
-ROOT = Path(__file__).resolve().parent
+BACKEND = Path(__file__).resolve().parent
+ROOT = BACKEND.parent
 LIVE_PROVIDERS = ('codex', 'claude', 'google')
 
 
@@ -616,7 +617,7 @@ class Center(RecoveryMixin, RoutingMixin, ReportMixin):
             venv_py = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
             py_exec = str(venv_py) if venv_py.is_file() else sys.executable
             plan = {"version": 1, "name": f"{task_id}-{role}", "workspace_root": task["worktree"], "max_parallel": 1,
-                    "tasks": [{"id": role, "command": [py_exec, str(ROOT / "center_worker.py"), str(directory / "request.json")], "shell": False, "workdir": task["worktree"]}]}
+                    "tasks": [{"id": role, "command": [py_exec, str(BACKEND / "center_worker.py"), str(directory / "request.json")], "shell": False, "workdir": task["worktree"]}]}
             plan_path = directory / "plan.yaml"
             try:
                 import yaml
@@ -778,7 +779,7 @@ class Center(RecoveryMixin, RoutingMixin, ReportMixin):
                 log = self.store.state / 'runs' / task['id'] / sid / 'gate-supervisor.log'
                 log.parent.mkdir(parents=True, exist_ok=True)
                 with log.open('ab') as output:
-                    subprocess.Popen([sys.executable, str(ROOT / 'smart_router.py'), '--state-dir', str(self.store.state), '--config', str(self.config_path), 'finish-gates', sid],
+                    subprocess.Popen([sys.executable, str(BACKEND / 'smart_router.py'), '--state-dir', str(self.store.state), '--config', str(self.config_path), 'finish-gates', sid],
                                      cwd=ROOT, env=worker_env(), stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                                      creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0, start_new_session=os.name != 'nt')
                 return {'state': 'implementation_done', 'gates': 'dispatched_background', 'session_id': sid}

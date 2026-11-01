@@ -63,7 +63,7 @@ class TestAutostart(unittest.TestCase):
         # Quoted /TR value, root and python quoted, cd /d to root
         tr_sched = sched_cmd[sched_cmd.index("/TR") + 1]
         self.assertIn(f'cd /d "{root}"', tr_sched)
-        self.assertIn(f'"{python}" smart_router.py start --mode live', tr_sched)
+        self.assertIn(f'"{python}" backend\\smart_router.py start --mode live', tr_sched)
 
         tr_dash = dash_cmd[dash_cmd.index("/TR") + 1]
         self.assertIn(f'cd /d "{root}"', tr_dash)

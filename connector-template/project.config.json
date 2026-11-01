@@ -18,6 +18,6 @@
   "auto_commit": false,
   "center": {
     "python": "C:/Users/spc/Documents/Project App/AI-command-center/.venv/Scripts/python.exe",
-    "cli": "C:/Users/spc/Documents/Project App/AI-command-center/smart_router.py"
+    "cli": "C:/Users/spc/Documents/Project App/AI-command-center/backend/smart_router.py"
   }
 }

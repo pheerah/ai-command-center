@@ -9,11 +9,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from center_runtime import Center, load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN = {'commit', 'commit-tree', 'push', 'merge', 'rebase', 'cherry-pick', 'revert', 'tag', 'am', 'pull', 'fetch', 'remote', 'send-pack'}
-SOURCES = sorted([*ROOT.glob('center_*.py'), ROOT / 'smart_router.py', ROOT / 'scripts' / 'install_project.py', ROOT / 'connector-template' / 'connector.py'])
+SOURCES = sorted([*(ROOT / 'backend').glob('*.py'), ROOT / 'scripts' / 'install_project.py', ROOT / 'connector-template' / 'connector.py'])
 
 
 def git_subcommands(path):

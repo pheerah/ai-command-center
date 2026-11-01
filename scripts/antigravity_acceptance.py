@@ -13,7 +13,7 @@ import sys
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 from center_runtime import Center
 from center_workspace import git, inside
 

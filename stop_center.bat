@@ -10,7 +10,7 @@ echo.
 :: Signal scheduler stop
 echo Stopping scheduler...
 if exist ".venv\Scripts\python.exe" (
-    .venv\Scripts\python.exe smart_router.py stop >nul 2>nul
+    .venv\Scripts\python.exe backend\smart_router.py stop >nul 2>nul
 )
 
 :: Terminate running node server on port 3939 if any

@@ -1,6 +1,6 @@
 @echo off
 title Google Subscription Attestation
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo ===========================================================
 echo         AI Dev Command Center - Google Attestation
@@ -16,7 +16,7 @@ echo.
 echo ===========================================================
 echo.
 
-.venv\Scripts\python.exe smart_router.py provider attest --plan "Antigravity Personal" google
+.venv\Scripts\python.exe backend\smart_router.py provider attest --plan "Antigravity Personal" google
 
 echo.
 pause

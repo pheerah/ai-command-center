@@ -24,7 +24,7 @@ def main():
                            provider=provider, mode='mock', mock={'sleep': 1})['id']
              for project, provider in [('a', 'codex'), ('a', 'claude'), ('b', 'codex'), ('b', 'claude')]]
     with (target / 'service.log').open('wb') as log:
-        proc = subprocess.Popen([sys.executable, str(ROOT / 'smart_router.py'), '--state-dir', str(center.store.state), 'serve', '--mode', 'mock'],
+        proc = subprocess.Popen([sys.executable, str(ROOT / 'backend' / 'smart_router.py'), '--state-dir', str(center.store.state), 'serve', '--mode', 'mock'],
                                 cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         max_active = 0

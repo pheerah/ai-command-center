@@ -49,7 +49,7 @@ function listSprites() {
 }
 
 function snapshot(taskId) {
-  const args = [path.join(ROOT, 'smart_router.py')];
+  const args = [path.join(ROOT, 'backend', 'smart_router.py')];
   if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
   if (process.env.AI_CENTER_CONFIG) args.push('--config', process.env.AI_CENTER_CONFIG);
   args.push('status');
@@ -95,7 +95,7 @@ function projectForToken(header) {
 }
 
 function callCenterApi(projectId, request) {
-  const args = [path.join(ROOT, 'smart_router.py')];
+  const args = [path.join(ROOT, 'backend', 'smart_router.py')];
   if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
   if (process.env.AI_CENTER_CONFIG) args.push('--config', process.env.AI_CENTER_CONFIG);
   args.push('--project-id', projectId, 'api-call');
@@ -265,7 +265,7 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
     }
     if (req.method === 'POST' && /^\/api\/tasks\/[a-f0-9]{12}\/approve$/.test(url.pathname)) {
       const taskId = url.pathname.split('/')[3];
-      const args = [path.join(ROOT, 'smart_router.py')];
+      const args = [path.join(ROOT, 'backend', 'smart_router.py')];
       if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
       if (process.env.AI_CENTER_CONFIG) args.push('--config', process.env.AI_CENTER_CONFIG);
       args.push('approve', taskId, '--yes');

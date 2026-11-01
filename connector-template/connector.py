@@ -166,12 +166,14 @@ def _run_plan(instruction, council_mode, auto_submit):
             pass
     if not center_dir:
         candidate = ROOT.parent / "AI-command-center"
-        if (candidate / "center_planner.py").is_file():
+        if (candidate / "backend" / "center_planner.py").is_file():
             center_dir = str(candidate)
         else:
             center_dir = str(ROOT.parent)
-    if center_dir not in sys.path:
-        sys.path.insert(0, center_dir)
+    # The Center keeps its modules in backend/; the cli path may point at the repo root (legacy shim) or at backend/ itself.
+    for entry in (Path(center_dir) / "backend", Path(center_dir)):
+        if entry.is_dir() and str(entry) not in sys.path:
+            sys.path.insert(0, str(entry))
     import center_planner
     plan_res = center_planner.plan(instruction, workspace_root=ROOT, council_mode=council_mode)
     if not auto_submit:

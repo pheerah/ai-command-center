@@ -300,7 +300,7 @@ def run(center, project_id, request):
     except ApiError as exc:
         return {'ok': False, 'status': 404 if str(exc) == 'Task not found' else 400, 'error': str(exc)}
     except ValueError as exc:
-        message = str(exc).replace(str(center.store.state), '<center>').replace(str(Path(__file__).resolve().parent), '<center>')
+        message = str(exc).replace(str(center.store.state), '<center>').replace(str(Path(__file__).resolve().parent.parent), '<center>')
         return {'ok': False, 'status': 409, 'error': scrub(message)[:300]}
     except Exception:  # never leak internals or paths
         return {'ok': False, 'status': 500, 'error': 'Center could not complete the request'}

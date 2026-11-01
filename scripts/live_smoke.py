@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 from center_runtime import Center
 from center_workspace import git
 from smart_router import service_status
@@ -81,7 +81,7 @@ def run(run_file):
     center = Center(record['state_dir'], record['config'])
     log_path = Path(run_file).parent / 'supervisor.log'
     with log_path.open('ab') as output:
-        proc = subprocess.Popen([sys.executable, str(ROOT / 'smart_router.py'), '--state-dir', record['state_dir'], '--config', record['config'], 'serve', '--mode', 'live'],
+        proc = subprocess.Popen([sys.executable, str(ROOT / 'backend' / 'smart_router.py'), '--state-dir', record['state_dir'], '--config', record['config'], 'serve', '--mode', 'live'],
                                 cwd=ROOT, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         try:

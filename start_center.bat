@@ -27,7 +27,7 @@ if %errorlevel% neq 0 (
 
 :: 3. Start Scheduler Daemon in background
 echo [1/3] Starting AI Multi-Provider Scheduler Daemon (Live mode)...
-start "AI Command Center - Scheduler" /min "%PYTHON%" smart_router.py serve --mode live
+start "AI Command Center - Scheduler" /min "%PYTHON%" backend\smart_router.py serve --mode live
 
 :: 4. Start Dashboard and API Server in background
 echo [2/3] Starting Web Dashboard & API Server on port 3939...

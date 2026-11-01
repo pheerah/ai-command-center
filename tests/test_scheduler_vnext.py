@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from center_service import service_status
 from smart_router import _retry_pause, dispatch_ready, serve
 

@@ -21,7 +21,7 @@ if (!['live', 'mock'].includes(mode)) {
 }
 
 function schedulerRunning() {
-  const result = spawnSync(python, ['smart_router.py', 'service-status'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 15000 });
+  const result = spawnSync(python, ['backend/smart_router.py', 'service-status'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 15000 });
   try { return JSON.parse(result.stdout).running === true; } catch { return false; }
 }
 
@@ -44,7 +44,7 @@ let shuttingDown = false;
 function shutdown(code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  if (startedScheduler) spawnSync(python, ['smart_router.py', 'stop'], { cwd: root, windowsHide: true, timeout: 15000 });
+  if (startedScheduler) spawnSync(python, ['backend/smart_router.py', 'stop'], { cwd: root, windowsHide: true, timeout: 15000 });
   for (const child of children) child.kill();
   process.exit(code);
 }
@@ -77,7 +77,7 @@ async function main() {
     } else {
       console.log(`[dev] starting scheduler (${mode})`);
       startedScheduler = true;
-      run('scheduler', python, ['smart_router.py', 'serve', '--mode', mode]);
+      run('scheduler', python, ['backend/smart_router.py', 'serve', '--mode', mode]);
     }
   }
   console.log(`[dev] dashboard: http://127.0.0.1:${port}`);

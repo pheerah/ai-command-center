@@ -42,7 +42,7 @@ def build_commands(root: Path | str = ROOT, python: str | None = None, node: str
             raise ValueError('Paths for scheduled tasks must not contain quotes, % or line breaks: ' + value)
     node_cmd = f'"{node_str}"' if " " in node_str else node_str
 
-    tr_scheduler = f'cmd.exe /c "cd /d "{root_str}" && "{py_str}" smart_router.py start --mode live"'
+    tr_scheduler = f'cmd.exe /c "cd /d "{root_str}" && "{py_str}" backend\\smart_router.py start --mode live"'
     tr_dashboard = f'cmd.exe /c "cd /d "{root_str}" && {node_cmd} server.js"'
 
     return [

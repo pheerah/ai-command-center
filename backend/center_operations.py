@@ -17,7 +17,7 @@ import tempfile
 from center_store import now
 from center_workspace import inside, sensitive, valid_id
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 MAX_FILES = 10000
 MAX_ENTRIES = 500
 MAX_BACKUP_CHECKPOINT_BYTES = 64 * 1024 * 1024

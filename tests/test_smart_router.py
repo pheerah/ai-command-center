@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch as mock_patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
 from center_runtime import Center
 from center_store import Store, transition
 from center_workspace import git, patch
@@ -288,7 +288,7 @@ class CenterTests(unittest.TestCase):
 
     def test_cancel_running_process_cleanup(self):
         t = self.task(mock={"sleep": 8})
-        args = [sys.executable, str(ROOT / "smart_router.py"), "--state-dir", str(self.center.store.state), "run", t["id"]]
+        args = [sys.executable, str(ROOT / 'backend' / 'smart_router.py'), "--state-dir", str(self.center.store.state), "run", t["id"]]
         p = subprocess.Popen(args, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 25
         child = None
@@ -363,7 +363,7 @@ class CenterTests(unittest.TestCase):
 
     def test_cross_project_connector_scope_is_enforced(self):
         t = self.task(project="project-b")
-        r = subprocess.run([sys.executable, str(ROOT / 'smart_router.py'), '--state-dir', str(self.center.store.state), '--project-id', 'project-a', 'status', t['id']], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, str(ROOT / 'backend' / 'smart_router.py'), '--state-dir', str(self.center.store.state), '--project-id', 'project-a', 'status', t['id']], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
         self.assertIn("another project's", r.stdout)
         self.assertNotIn(t['prompt'], r.stdout)
@@ -397,7 +397,7 @@ class CenterTests(unittest.TestCase):
         self.assertEqual(self.center.store.task(t['id'])['provider'], 'codex')
 
     def test_start_stop_restart_service_has_no_autostart(self):
-        command = [sys.executable, str(ROOT / 'smart_router.py'), '--state-dir', str(self.center.store.state)]
+        command = [sys.executable, str(ROOT / 'backend' / 'smart_router.py'), '--state-dir', str(self.center.store.state)]
         p = subprocess.Popen([*command, 'serve', '--mode', 'mock'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         from smart_router import service_status
         try:

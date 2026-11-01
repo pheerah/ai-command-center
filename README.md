@@ -2,7 +2,7 @@
 
 Center กลางในเครื่องสำหรับหลายโปรเจกต์ ใช้ **SQLite** เก็บคิว การมอบหมายงาน session ประวัติผู้เขียน checkpoint และหลักฐานทดสอบ ไม่ต้องใช้ Supabase หรือ API key
 
-ชุดปัจจุบันทดสอบ Codex/Claude จริงครบทั้งสองบทบาทแล้ว: Codex เขียน Python → Claude review และ Claude เขียน JavaScript → Codex review ผ่าน functional gates และจบที่ ready_for_human_approval พร้อม parallel mock supervisor smoke ดู [VALIDATION.md](VALIDATION.md) สำหรับหลักฐานและขอบเขตการตรวจ
+ชุดปัจจุบันทดสอบ Codex/Claude จริงครบทั้งสองบทบาทแล้ว: Codex เขียน Python → Claude review และ Claude เขียน JavaScript → Codex review ผ่าน functional gates และจบที่ ready_for_human_approval พร้อม parallel mock supervisor smoke ดู [VALIDATION.md](docs/VALIDATION.md) สำหรับหลักฐานและขอบเขตการตรวจ
 
 Python เป็นเจ้าของ scheduler/atomic claim เพียงตัวเดียว ส่วน Maestro 2.5.4 รัน phase ที่ได้รับมอบหมายผ่าน command task แบบ argument array ไม่มี scheduler อีกตัวมา claim งานซ้ำ งานแยก worktree ตาม project/task/attempt
 
@@ -290,7 +290,7 @@ npm.cmd run build
 
 มี unit/integration tests สำหรับ queue/concurrency, recovery, cancellation, retry/fallback, gates และ review รวมทั้ง Vitest API tests และ Playwright browser → API → SQLite tests ที่เปิดหลักฐานจากสอง sample projects Python fixtures ใช้ Git objects เดิม ไม่เรียก `git commit` ไม่มี typecheck/coverage threshold/duplication gate เดิมที่ตั้งไว้ใน Center นี้ จึงไม่อ้างว่าผ่าน checks ที่ไม่ได้กำหนด
 
-ดู [PROJECT_STATE.md](PROJECT_STATE.md), [MIGRATION.md](MIGRATION.md) และ [HANDOFF_ANTIGRAVITY.md](HANDOFF_ANTIGRAVITY.md) สำหรับสถานะและข้อที่ยังต้อง live-verify
+ดู [PROJECT_STATE.md](docs/PROJECT_STATE.md), [MIGRATION.md](docs/MIGRATION.md) และ [HANDOFF_ANTIGRAVITY.md](docs/HANDOFF_ANTIGRAVITY.md) สำหรับสถานะและข้อที่ยังต้อง live-verify
 
 
 ## รอบปรับความพร้อมหลังวิเคราะห์ร่วม Codex / Claude Code

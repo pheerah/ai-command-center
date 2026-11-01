@@ -9,6 +9,9 @@ import subprocess
 import tempfile
 import unittest
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'backend'))
 from center_integration import compose_dependencies, verify_dependencies
 from center_workspace import checkpoint, git, patch
 
