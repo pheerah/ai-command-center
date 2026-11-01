@@ -9,10 +9,13 @@ import json
 import os
 import re
 import secrets
+import sqlite3
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
+import center_chat_store as chat_store
 import center_quota
 from center_context import read_sources
 from center_planner import extract_mentioned_files
@@ -362,3 +365,108 @@ def run_provider(provider, prompt, timeout, workdir):
         return _answer_text(provider, workdir, log_path.read_text(encoding='utf-8', errors='replace'))
     except (OSError, ValueError, AttributeError):
         raise ProviderFailure('bad_output') from None
+
+
+# ---- one turn --------------------------------------------------------------------------------------------------------------
+
+RUNNER = run_provider  # tests patch this; run_turn(runner=...) overrides it per call
+TURN_ID = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
+RETRY_REMINDER = '\n\nYour previous answer was not valid. Answer with only the JSON object described above.'
+ERRORS = {
+    'invalid_turn': 'รหัสข้อความไม่ถูกต้อง ลองส่งใหม่อีกครั้ง',
+    'invalid_message': 'ข้อความว่างเปล่าหรือยาวเกินที่กำหนด (ไม่เกิน {limit} ตัวอักษร)',
+    'unknown_project': 'ไม่พบโปรเจกต์นี้ หรือโฟลเดอร์ของโปรเจกต์หายไป',
+    'no_provider': 'ตอนนี้ยังไม่มี AI ที่พร้อมใช้ (โควตาเหลือน้อย หรือยังไม่ได้เปิดใช้) ลองใหม่ภายหลัง',
+    'unavailable': 'AI ไม่พร้อมตอบในตอนนี้ ลองส่งใหม่อีกครั้ง',
+    'timeout': 'AI ใช้เวลานานเกินไป (หมดเวลา) ลองส่งใหม่อีกครั้ง',
+    'blocked': 'AI ปฏิเสธที่จะตอบข้อความนี้ ลองเปลี่ยนคำถาม',
+    'bad_output': 'AI ตอบในรูปแบบที่ใช้ไม่ได้ ลองถามใหม่อีกครั้ง',
+    'busy': 'ข้อความนี้กำลังถูกประมวลผลอยู่ รอสักครู่แล้วลองใหม่',
+}
+
+
+def mock_answer(message, context_scope):
+    """Deterministic stand-in for a provider (config chat.adapter = "mock"): used by the demo fixture and the browser tests."""
+    if message.startswith('!'):
+        return {'kind': 'reply', 'text': '<img src=x onerror=alert(1)><script>alert(1)</script> **ตัวอย่างข้อความที่มีโค้ด**', 'files': []}
+    if message.startswith('?'):
+        return {'kind': 'reply', 'text': 'นี่คือคำตอบจำลองสำหรับคำถามของคุณ', 'files': []}
+    if message.startswith('~'):
+        return {'kind': 'clarify', 'questions': ['ต้องการให้แก้ที่ส่วนไหนของโปรเจกต์คะ?']}
+    return {'kind': 'draft_task', 'title': 'งานจำลองจากแชท', 'prompt': message, 'scope': context_scope[:1] or ['src'],
+            'accept': ['ทำตามที่ขอครบถ้วน'], 'complexity': 1, 'provider': 'auto', 'related_task_id': None}
+
+
+def _error(code, **format_args):
+    return {'id': None, 'kind': 'error', 'body': ERRORS[code].format(**format_args), 'provider': None, 'task_id': None}
+
+
+def _wait_for_answer(store, project_id, turn_id, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        row = chat_store.find_turn(store, project_id, turn_id, 'secretary')
+        if row:
+            return row
+        time.sleep(0.1)
+    return None
+
+
+def _ask(center, project_id, prompt, scope, providers, settings, runner):
+    """Try providers in order; one retry per provider for an unusable answer. Returns (payload, provider) or (reason, None)."""
+    reason = 'no_provider'
+    for provider in providers:
+        for attempt in (1, 2):
+            with tempfile.TemporaryDirectory(prefix='center-chat-') as workdir:
+                try:
+                    raw = runner(provider, prompt if attempt == 1 else prompt + RETRY_REMINDER, settings['timeout_seconds'], Path(workdir))
+                except ProviderFailure as failure:
+                    reason = failure.reason
+                    break  # next provider
+            try:
+                return parse_secretary_output(raw, scope), provider
+            except ChatOutputError:
+                reason = 'bad_output'
+        else:
+            return reason, None  # unusable twice from the same provider: stop instead of spending other providers' quota
+    return reason, None
+
+
+def run_turn(center, project_id, message, turn_id, runner=None):
+    """One chat turn. Returns the stored secretary row; problems become kind='error' rows (or an unsaved error before anything is stored)."""
+    settings = chat_settings(center)
+    if not isinstance(turn_id, str) or not TURN_ID.match(turn_id):
+        return _error('invalid_turn')
+    if not isinstance(message, str) or not message.strip() or len(message) > settings['max_message_chars']:
+        return _error('invalid_message', limit=settings['max_message_chars'])
+    try:
+        scope = center.project(project_id).get('context_scope', [])
+        if not _project_root(center, project_id).is_dir():
+            raise ValueError('missing root')
+    except (ValueError, OSError):
+        return _error('unknown_project')
+    store = center.store
+    done = chat_store.find_turn(store, project_id, turn_id, 'secretary')
+    if done:
+        return done
+    try:
+        chat_store.add_message(store, project_id, turn_id, 'user', 'text', message)
+    except sqlite3.IntegrityError:  # the same turn is already being answered (double click, retry): wait for that answer
+        row = _wait_for_answer(store, project_id, turn_id, settings['timeout_seconds'] * 3)
+        return row or _error('busy')
+    if settings['adapter'] == 'mock':
+        payload, provider = mock_answer(message, scope), 'mock'
+    else:
+        try:
+            history = [r for r in chat_store.history(store, project_id, settings['history_turns'] * 2 + 2) if r['turn_id'] != turn_id]
+            context = build_context(center, project_id, message, history)
+            providers = chat_provider_order(center)
+            payload, provider = _ask(center, project_id, context['prompt'], scope, providers, settings, runner or RUNNER) if providers else ('no_provider', None)
+        except (ValueError, OSError, sqlite3.Error):
+            payload, provider = 'unavailable', None
+    if provider is None:
+        kind, body = 'error', ERRORS[payload]
+    else:
+        kind, body = payload['kind'], json.dumps(payload, ensure_ascii=False)
+    row_id = chat_store.add_message(store, project_id, turn_id, 'secretary', kind, body, provider)
+    chat_store.trim(store, project_id)
+    return chat_store.message(store, project_id, row_id)
