@@ -253,7 +253,7 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       if (url.pathname === '/' || url.pathname === '/center.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(fs.readFileSync(path.join(ROOT, 'center.html')));
-      } else if (['/dashboard.js', '/office_game.js', '/office_game_3d.js', '/dashboard.css'].includes(url.pathname)) {
+      } else if (['/dashboard.js', '/office_game.js', '/dashboard.css'].includes(url.pathname)) {
         const filename = url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8' });
         res.end(fs.readFileSync(path.join(ROOT, filename)));

@@ -20,6 +20,7 @@ from center_store import Store, event, now, pid_alive, transition
 from center_worker import cli_command, write_json
 from center_workspace import canonical, checkpoint, ensure_worktree, git, in_scope, inside, patch, safe_relative, sensitive, valid_id, restore
 from center_recovery import RecoveryMixin
+from center_reporting import ReportMixin
 from center_routing import RoutingMixin
 
 ROOT = Path(__file__).resolve().parent
@@ -66,7 +67,7 @@ def load_config(path=None):
     return data
 
 
-class Center(RecoveryMixin, RoutingMixin):
+class Center(RecoveryMixin, RoutingMixin, ReportMixin):
     def __init__(self, state=None, config=None, quota_reader=None):
         self.config_path = canonical(config or ROOT / 'center.config.json')
         self.config = load_config(config)
@@ -1027,115 +1028,6 @@ class Center(RecoveryMixin, RoutingMixin):
                 event(con, task_id, "cancellation_requested", {"session_id": active["id"], "cleanup": "owner_stops_process_then_releases"})
         return self.store.task(task_id)
 
-    def recover(self):
-        recovered = []
-        with self.store.connection() as con:
-            sessions = [dict(r) for r in con.execute("SELECT * FROM sessions WHERE lease_until<?", (time.time(),))]
-        for snapshot in sessions:
-            # Never reuse a slot while an old process might still write. PID checks
-            # are conservative; an alive/reused PID keeps capacity occupied.
-            try:
-                with self.store.connection(write=True) as con:
-                    session = con.execute('SELECT * FROM sessions WHERE id=? AND lease_until<?', (snapshot['id'], time.time())).fetchone()
-                    if not session or pid_alive(session['owner_pid']) or pid_alive(session['child_pid']):
-                        continue
-                    task = con.execute('SELECT * FROM tasks WHERE id=?', (session['task_id'],)).fetchone()
-                    if session['adapter'] == 'handoff':
-                        # Never assume an external IDE stopped. Cancellation is
-                        # finalized only by worker-stopped acknowledgement.
-                        if task['status'] not in ('blocked', 'cancelled', 'approved'):
-                            transition(con, task['id'], 'blocked', {'reason': 'handoff_lease_expired_requires_worker_stop_ack'})
-                        continue
-                self.failure(session["id"], "cancelled_or_lease_lost")
-                recovered.append(task['id'])
-            except (ValueError, OSError):
-                continue
-        with self.store.connection(write=True) as con:
-            orphans = con.execute("SELECT id FROM tasks WHERE status IN ('assigned','running','implementation_done','gates','review') AND NOT EXISTS(SELECT 1 FROM sessions WHERE sessions.task_id=tasks.id)").fetchall()
-            for task in orphans:
-                transition(con, task['id'], 'blocked', {'reason': 'orphaned_active_task_requires_worker_stop_reconciliation'})
-                con.execute("UPDATE tasks SET error='orphaned_active_task' WHERE id=?", (task['id'],))
-                recovered.append(task['id'])
-        return {"recovered": recovered, "preserved_worktrees": True}
-
-    def acknowledge_stop(self, sid, reason):
-        session = self.session(sid)
-        if session['adapter'] != 'handoff' or not reason.strip():
-            raise ValueError('Only explicit IDE stop acknowledgements are accepted')
-        with self.store.connection(write=True) as con:
-            event(con, session['task_id'], 'external_worker_stopped', {'session_id': sid, 'reason': reason})
-        return self.failure(sid, 'cancelled_or_lease_lost')
-
-    def reconcile(self, task_id, reason, stopped=False, provider=None, rebuild_overlay=False):
-        if not stopped or not reason.strip():
-            raise ValueError("Explicit --worker-stopped and a reason are required before reassignment")
-        task = self.store.task(task_id)
-        if task['cancel_requested']:
-            raise ValueError('Cancellation must be finalized, not requeued; acknowledge worker-stopped first')
-        if not task["base_rev"] or not json.loads(task["config_json"]).get("allowed_providers"):
-            raise ValueError("Legacy task lacks v2 ownership/scope evidence. Preserve its patch and submit a new task")
-        with self.store.connection() as con:
-            active = con.execute("SELECT * FROM sessions WHERE task_id=?", (task_id,)).fetchone()
-            if active and (pid_alive(active["owner_pid"]) or pid_alive(active["child_pid"])):
-                raise ValueError("A recorded process is still alive; stop it before reassignment")
-        config = json.loads(task["config_json"])
-        if rebuild_overlay and (config.get('dependency_policy') != 'overlay' or config.get('_dependency_overlay')):
-            raise ValueError('Overlay rebuild is only for an incomplete overlay with no adopted provenance')
-        if task["worktree"] and not rebuild_overlay and not self._restore_not_verified(task):
-            self.save_checkpoint(task_id)
-        if provider and provider not in config["allowed_providers"]:
-            raise ValueError("Fallback provider not allowed")
-        with self.store.connection(write=True) as con:
-            current = con.execute("SELECT status,attempt,max_attempts,cancel_requested FROM tasks WHERE id=?", (task_id,)).fetchone()
-            if current["status"] not in ("blocked", "failed"):
-                raise ValueError("Only failed/blocked tasks can be reconciled")
-            if current["attempt"] >= current["max_attempts"]:
-                raise ValueError("Attempt limit reached; create a new task referencing this evidence")
-            if current["cancel_requested"]:
-                raise ValueError("Cancellation cannot be discarded by reassignment")
-            live = con.execute("SELECT owner_pid,child_pid FROM sessions WHERE task_id=?", (task_id,)).fetchone()
-            if live and (pid_alive(live["owner_pid"]) or pid_alive(live["child_pid"])):
-                raise ValueError("A recorded process is still alive; stop it before reassignment")
-            con.execute("DELETE FROM sessions WHERE task_id=?", (task_id,))
-            transition(con, task_id, "queued", {"reason": reason, "previous_provider": task["provider"], "requested_provider": provider or task["requested_provider"]})
-            if rebuild_overlay:
-                event(con, task_id, 'incomplete_overlay_rebuild_authorized', {'reason': reason, 'preserved_checkpoint': task['checkpoint'], 'preserved_worktree': task['worktree']})
-                con.execute('UPDATE tasks SET checkpoint=NULL,patch_hash=NULL WHERE id=?', (task_id,))
-            if con.execute('SELECT cancel_requested FROM tasks WHERE id=?', (task_id,)).fetchone()[0]:
-                raise ValueError('Cancellation cannot be discarded by reassignment')
-            con.execute("UPDATE tasks SET requested_provider=?,not_before=0,error=NULL WHERE id=?", (provider or task["requested_provider"], task_id))
-        return self.store.task(task_id)
-
-    def auto_retry(self):
-        """Send work back through routing after a failed gate or a rejected review, within the attempt budget.
-
-        Only a task that failed on its own evidence qualifies: quality_gate_failed, or a current-patch review whose
-        verdict is rejected. Cancelled, blocked (auth/config/model) and budget-exhausted tasks are left for a human.
-        The previous gate log and review feedback travel with the task (_prior_attempt), and every attempt stays in authorship.
-        """
-        retried = []
-        with self.store.connection() as con:
-            candidates = [dict(r) for r in con.execute("SELECT * FROM tasks WHERE status='failed' AND cancel_requested=0 AND attempt<max_attempts")]
-        for task in candidates:
-            with self.store.connection() as con:
-                if con.execute('SELECT 1 FROM sessions WHERE task_id=?', (task['id'],)).fetchone():
-                    continue
-                review = con.execute("SELECT payload FROM evidence WHERE task_id=? AND kind='review' AND base_rev=? AND patch_hash=? ORDER BY id DESC LIMIT 1",
-                                     (task['id'], task['base_rev'], task['patch_hash'])).fetchone()
-            try:
-                rejected = bool(review) and json.loads(review[0]).get('verdict') == 'rejected' and not task['error']
-            except (ValueError, TypeError, AttributeError):
-                continue  # malformed evidence: leave this task to a human, keep going with the rest
-            if task['error'] != 'quality_gate_failed' and not rejected:
-                continue
-            reason = 'auto_retry_after_quality_gate_failure' if task['error'] == 'quality_gate_failed' else 'auto_retry_after_rejected_review'
-            try:
-                self.reconcile(task['id'], reason, stopped=True)
-            except ValueError:
-                continue  # state moved on, a process is alive, or the budget ran out: leave it to a human
-            retried.append(task['id'])
-        return retried
-
     def adopt_drift(self, task_id, provider, reason, stopped=False):
         """Explicitly attribute preserved edits; always require fresh gates/review."""
         task = self.store.task(task_id)
@@ -1262,36 +1154,3 @@ class Center(RecoveryMixin, RoutingMixin):
     def usable_capacity(self):
         return center_capacity.effective_capacity(self.config['global_capacity'], center_capacity.reserved_sessions(self.config))
 
-    def report(self, task_id=None, project_id=None):
-        with self.store.connection() as con:
-            where = ' WHERE t.project_id=?' if project_id else ''
-            params = (project_id,) if project_id else ()
-            sessions = [dict(r) for r in con.execute('SELECT s.* FROM sessions s JOIN tasks t ON t.id=s.task_id' + where, params)]
-            if task_id:
-                task = self.store.task(task_id)
-                if project_id and task['project_id'] != project_id:
-                    raise ValueError('Task belongs to another project')
-                events = [dict(r) for r in con.execute("SELECT * FROM events WHERE task_id=? ORDER BY id", (task_id,))]
-                evidence = [dict(r) for r in con.execute("SELECT * FROM evidence WHERE task_id=? ORDER BY id", (task_id,))]
-                authors = [dict(r) for r in con.execute("SELECT * FROM authorship WHERE task_id=? ORDER BY id", (task_id,))]
-                return {"task": task, "events": events, "evidence": evidence, "authorship": authors, "sessions": [s for s in sessions if s["task_id"] == task_id]}
-            task_filter = ' WHERE project_id=?' if project_id else ''
-            tasks = [dict(r) for r in con.execute("SELECT id,project_id,title,status,provider,reviewer,attempt,mode,error,updated_at FROM tasks" + task_filter + " ORDER BY created_at DESC LIMIT 100", params)]
-            projects = [dict(r) for r in con.execute("SELECT id,name,root_path FROM projects" + (' WHERE id=?' if project_id else ''), params)]
-            plans = {}
-            for task_row in tasks:
-                for row in con.execute("SELECT detail FROM events WHERE task_id=? AND event='dispatch_recorded' ORDER BY id", (task_row['id'],)):
-                    detail = json.loads(row[0])
-                    plans.setdefault(task_row['id'], {})[detail.get('role')] = {k: detail.get(k) for k in ('provider', 'model', 'effort', 'skills')}
-        for task in tasks:
-            task['plan'] = plans.get(task['id'], {})
-            task['waiting_reason'] = None
-            if task['status'] in ('queued', 'retry_wait', 'waiting_for_independent_review'):
-                role = 'review' if task['status'] == 'waiting_for_independent_review' else 'implementation'
-                readiness = self.scheduling_readiness(task['id'], role, 'mock' if task['mode'] == 'mock' else 'live')
-                task['waiting_reason'] = None if readiness['ready'] else readiness['reason']
-                task['routing_reason'] = readiness['reason']
-            elif task['status'] == 'blocked':
-                task['waiting_reason'] = task['error'] or 'explicit_reconciliation_required'
-        from center_service import service_status
-        return {"storage": "sqlite", "projects": projects, "tasks": tasks, "sessions": sessions, "capacity": center_capacity.capacity_report(self.config, len(sessions)), "providers": self.provider_status(), "global_capacity": self.config["global_capacity"], "live_execution": self.config["live_execution"], 'service': service_status(self), 'task_window': {'limit': 100, 'ordering': 'latest_first'}, "updated": now()}
