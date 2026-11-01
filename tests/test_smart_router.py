@@ -128,7 +128,7 @@ class CenterTests(unittest.TestCase):
     def test_atomic_claim_across_processes(self):
         t = self.task()
         script = "from center_runtime import Center; import sys,json; c=Center(sys.argv[1]); s=c.claim(sys.argv[2],'implementation','mock','codex'); print(json.dumps(bool(s)))"
-        ps = [subprocess.Popen([sys.executable, "-c", script, str(self.center.store.state), t["id"]], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(4)]
+        ps = [subprocess.Popen([sys.executable, "-c", script, str(self.center.store.state), t["id"]], cwd=ROOT / "backend", stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(4)]
         results = []
         for p in ps:
             out, err = p.communicate(timeout=30)
@@ -533,7 +533,7 @@ class CenterTests(unittest.TestCase):
     def test_status_initialization_does_not_take_write_lock_and_future_schema_rejected(self):
         script = 'from center_store import Store;from pathlib import Path;import sys;Store(Path(sys.argv[1]));print("ok")'
         with self.center.store.connection(write=True):
-            p = subprocess.run([sys.executable, '-c', script, str(self.center.store.state)], cwd=ROOT, capture_output=True, timeout=5)
+            p = subprocess.run([sys.executable, '-c', script, str(self.center.store.state)], cwd=ROOT / "backend", capture_output=True, timeout=5)
             self.assertEqual(p.returncode, 0, p.stderr)
         with self.center.store.connection(write=True) as con:
             con.execute("UPDATE center_meta SET value='999' WHERE key='schema_version'")
