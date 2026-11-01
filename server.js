@@ -164,7 +164,7 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
   return http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'");
     const host = req.headers.host || '';
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {
       res.writeHead(403).end('Local requests only');
@@ -180,19 +180,94 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       catch { if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Request failed' })); }
       return;
     }
+    const url = new URL(req.url, `http://${host}`);
+    if (req.method === 'POST' && url.pathname === '/api/dispatch') {
+      let body = {};
+      try {
+        const raw = await readBody(req);
+        body = JSON.parse(raw);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'Invalid JSON body' }));
+        return;
+      }
+      const { project_id, prompt } = body;
+      if (!project_id || !prompt || !prompt.trim()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'Project and prompt are required' }));
+        return;
+      }
+      let projectRoot = null;
+      try {
+        const snap = await readSnapshot();
+        const p = (snap.projects || []).find(x => x.id === project_id);
+        if (p) projectRoot = p.root_path;
+      } catch {}
+      if (!projectRoot || !fs.existsSync(projectRoot)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: `Project '${project_id}' not found` }));
+        return;
+      }
+      const connectorPy = path.join(projectRoot, 'connector.py');
+      if (!fs.existsSync(connectorPy)) {
+        res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: `connector.py missing in project root` }));
+        return;
+      }
+      const args = [connectorPy, 'plan', prompt.trim(), '--submit'];
+      execFile(PYTHON, args, { cwd: projectRoot, timeout: 60000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+        try {
+          const data = JSON.parse(stdout);
+          res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, data }));
+        } catch {
+          if (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: stderr || stdout || error.message }));
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, raw: stdout }));
+          }
+        }
+      });
+      return;
+    }
+    if (req.method === 'POST' && /^\/api\/tasks\/[a-f0-9]{12}\/approve$/.test(url.pathname)) {
+      const taskId = url.pathname.split('/')[3];
+      const args = [path.join(ROOT, 'smart_router.py')];
+      if (process.env.AI_CENTER_STATE_DIR) args.push('--state-dir', process.env.AI_CENTER_STATE_DIR);
+      if (process.env.AI_CENTER_CONFIG) args.push('--config', process.env.AI_CENTER_CONFIG);
+      args.push('approve', taskId, '--yes');
+      execFile(PYTHON, args, { cwd: ROOT, timeout: 30000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+        try {
+          const data = JSON.parse(stdout);
+          if (error || data.error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: data.error || (error && error.message) }));
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, data }));
+          }
+        } catch {
+          res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: false, error: 'Approval execution failed' }));
+        }
+      });
+      return;
+    }
     if (req.method !== 'GET') {
       res.writeHead(410, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Direct AI execution and legacy mutations are disabled. Use the Center CLI.' }));
       return;
     }
-    const url = new URL(req.url, `http://${host}`);
     try {
-      if (url.pathname === '/') {
+      if (url.pathname === '/' || url.pathname === '/center.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(fs.readFileSync(path.join(ROOT, 'center.html')));
-      } else if (url.pathname === '/dashboard.js' || url.pathname === '/dashboard.css') {
+      } else if (['/dashboard.js', '/office_game.js', '/office_game_3d.js', '/dashboard.css'].includes(url.pathname)) {
         const filename = url.pathname.slice(1);
         res.writeHead(200, { 'Content-Type': filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8' });
         res.end(fs.readFileSync(path.join(ROOT, filename)));
+      } else if (url.pathname.startsWith('/assets/')) {
+        const filePath = path.join(ROOT, url.pathname);
+        if (fs.existsSync(filePath)) {
+          const ext = path.extname(filePath).toLowerCase();
+          const mime = ext === '.png' ? 'image/png' : (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : ext === '.js' ? 'text/javascript; charset=utf-8' : 'application/octet-stream';
+          const cacheHeader = ext === '.js' ? 'no-cache, no-store, must-revalidate' : 'public, max-age=86400';
+          res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': cacheHeader });
+          res.end(fs.readFileSync(filePath));
+        } else {
+          res.writeHead(404).end('Not found');
+        }
       } else if (url.pathname === '/api/health') {
         const data = await readSnapshot();
         const service = data.service || { running: false, mode: 'unknown', reason: 'not_observed', heartbeat_age_seconds: null };

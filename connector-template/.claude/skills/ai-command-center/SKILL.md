@@ -9,14 +9,16 @@ Use `python connector.py` at the project root. It talks to the Center over HTTP 
 
 ## Request classification
 - Questions, explanations and read-only code discussion: answer normally; no task needed.
-- Any source/config/test change, multi-file work or QA review: check `health`, then `submit` a scoped task with acceptance criteria.
+- Any source/config/test change, multi-file work or QA review: execute `python connector.py plan "<user prompt>" --submit` directly without exploring files locally.
 - Center unreachable or no provider available: report `blocked` to the user. Never silently implement the task yourself.
 
 ## How a task runs
-`submit` queues it. The Center alone chooses the provider (by observed plan quota, capacity and past quality), the model, the reasoning effort and the skills, works in an isolated copy, runs this project's gates, and gets an independent review from a provider that did not write the patch. Be honest with `--complexity 1-5`: it drives model size and effort, and low complexity saves tokens.
+Run `python connector.py plan "<Requirement>" --submit`. The Adaptive Planner automatically classifies whether it is simple (Fast Path) or complex (Council Path), breaks down subtasks/DAG, chooses the model tier and effort, and queues it directly into the Center!
 
+You can also submit manually if explicit scope and acceptance criteria are already known:
 ```powershell
 python connector.py health
+python connector.py plan "Natural language requirement here" --submit
 python connector.py submit --title 'Describe task' --prompt 'Requirement' --scope src --scope tests --accept 'Required checks pass' --complexity 2
 python connector.py status TASK_ID      # one-line state
 python connector.py report TASK_ID      # events, evidence, which provider/model/effort/skills ran each step
@@ -30,8 +32,9 @@ python connector.py cancel TASK_ID
 `--provider claude|codex|google` is only a request; the Center may still decide otherwise within the project's allowed providers.
 
 ## Rules you must keep
-- Human approval is done by the user in an interactive Center terminal. Never try to approve on their behalf. `apply` refuses until the task is approved.
-- `apply` never commits. After it, show the user the diff and let them commit.
+- When configured with `approval_policy: auto_apply` (default), approved patches are applied directly into the project root automatically once Quality Gates and Review pass!
+- For projects configured with `human_required`, human approval is done in the Center terminal before `apply`.
+- `apply` never runs git commit/push. Review the diff and commit yourself when ready.
 - Do not poll by repeatedly asking a model: use `status`, `report` or `wait`.
 - Do not create credentials, change global Claude/IDE settings, invoke paid APIs, or push/merge/deploy.
 - Review results never come from this session. If the Center says it is waiting for independent review, wait.

@@ -107,14 +107,20 @@ class CenterTests(unittest.TestCase):
         self.assertEqual(self.center.store.task(t["id"])["status"], "queued")
 
     def test_multi_session_capacity_and_no_double_claim(self):
-        tasks = [self.task() for _ in range(5)]
-        a = self.center.claim(tasks[0]["id"], "implementation", "mock", "codex")
-        b = self.center.claim(tasks[1]["id"], "implementation", "mock", "codex")
-        self.assertTrue(a and b)
-        self.assertIsNone(self.center.claim(tasks[2]["id"], "implementation", "mock", "codex"))
-        self.assertTrue(self.center.claim(tasks[2]["id"], "implementation", "mock", "claude"))
-        self.assertTrue(self.center.claim(tasks[3]["id"], "implementation", "mock", "claude"))
-        self.assertIsNone(self.center.claim(tasks[4]["id"], "implementation", "mock"))
+        codex_cap = self.center.config["providers"]["codex"]["capacity"]
+        claude_cap = self.center.config["providers"]["claude"]["capacity"]
+        tasks = [self.task() for _ in range(codex_cap + claude_cap + 1)]
+        for i in range(codex_cap):
+            self.assertTrue(self.center.claim(tasks[i]["id"], "implementation", "mock", "codex"))
+
+
+        self.assertIsNone(self.center.claim(tasks[codex_cap]["id"], "implementation", "mock", "codex"))
+        for i in range(claude_cap):
+            self.assertTrue(self.center.claim(tasks[codex_cap + i]["id"], "implementation", "mock", "claude"))
+        self.assertIsNone(self.center.claim(tasks[codex_cap + claude_cap]["id"], "implementation", "mock"))
+
+
+
         self.assertIsNone(self.center.claim(tasks[0]["id"], "implementation", "mock", "codex"))
         events = self.center.report(tasks[0]["id"])["events"]
         self.assertNotIn("worker_started", [e["event"] for e in events])

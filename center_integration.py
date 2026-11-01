@@ -76,10 +76,11 @@ def _dependency_snapshot(center, consumer, dependency):
             raise ValueError('Dependency source missing or exceeds limit')
         with source.open('rb') as stream:
             data = stream.read(maximum + 1)
-        total += len(data)
-        if total > maximum or len(data) != item['size'] or hashlib.sha256(data).hexdigest() != expected:
+        normalized = data.replace(b'\r\n', b'\n')
+        total += len(normalized)
+        if total > maximum or len(normalized) != item['size'] or hashlib.sha256(normalized).hexdigest() != expected:
             raise ValueError('Dependency source integrity mismatch')
-        files[name] = {'content': data, 'sha256': expected, 'size': len(data), 'executable': source.stat().st_mode & 0o111}
+        files[name] = {'content': normalized, 'sha256': expected, 'size': len(normalized), 'executable': source.stat().st_mode & 0o111}
     # A source could change while the snapshot is copied. Recheck the full patch.
     center.validate_evidence(dependency['id'])
     with center.store.connection() as con:

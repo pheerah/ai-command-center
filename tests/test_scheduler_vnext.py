@@ -155,7 +155,7 @@ class SchedulerDatabaseResilienceTests(unittest.TestCase):
                 return result
 
             store.connection = connection
-            center = SimpleNamespace(store=store, config={'global_capacity': 1}, usable_capacity=lambda: 1, recover=recover, run_phase=lambda *_: None)
+            center = SimpleNamespace(store=store, config={'global_capacity': 1}, usable_capacity=lambda: 1, recover=recover, expire_stalled_queue=lambda: [], run_phase=lambda *_: None)
             with patch('smart_router.uuid.uuid4', return_value=SimpleNamespace(hex='fixture')), patch('smart_router.dispatch_ready', side_effect=dispatch), patch('smart_router._retry_pause', side_effect=lambda stop, delay: pauses.append(delay)), patch('smart_router.time.sleep'), patch('smart_router.print_json', side_effect=logs.append):
                 serve(center, 'mock')
             return counts, pauses, logs, store.db.execute("SELECT value FROM center_meta WHERE key='service'").fetchone(), (store.state / 'stop-fixture').exists()

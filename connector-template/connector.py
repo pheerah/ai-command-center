@@ -25,6 +25,13 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent
 FINAL = ('ready_for_human_approval', 'approved', 'failed', 'blocked', 'cancelled', 'rejected')
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 
 def blocked(reason):
     print(json.dumps({'state': 'blocked', 'reason': reason, 'policy': 'no_silent_ide_takeover'}, ensure_ascii=False))
@@ -146,11 +153,55 @@ def apply_patch(task_id, dry_run):
             'tracked_patch_bytes': len(tracked), 'note': 'Nothing was committed; review the diff and commit yourself.'}
 
 
+def _run_plan(instruction, council_mode, auto_submit):
+    cfg_file = ROOT / 'project.config.json'
+    center_dir = None
+    if cfg_file.is_file():
+        try:
+            cfg = json.loads(cfg_file.read_text(encoding='utf-8'))
+            center_cli = cfg.get('center', {}).get('cli')
+            if center_cli:
+                center_dir = str(Path(center_cli).resolve().parent)
+        except Exception:
+            pass
+    if not center_dir:
+        candidate = ROOT.parent / "AI-command-center"
+        if (candidate / "center_planner.py").is_file():
+            center_dir = str(candidate)
+        else:
+            center_dir = str(ROOT.parent)
+    if center_dir not in sys.path:
+        sys.path.insert(0, center_dir)
+    import center_planner
+    plan_res = center_planner.plan(instruction, workspace_root=ROOT, council_mode=council_mode)
+    if not auto_submit:
+        return plan_res
+    def _do_submit(title, prompt, scope, acceptance, complexity, dependencies, provider):
+        body = {
+            'title': title,
+            'prompt': prompt,
+            'scope': scope,
+            'accept': acceptance,
+            'complexity': complexity,
+            'depends_on': dependencies,
+            'provider': provider,
+            'request_id': uuid.uuid4().hex
+        }
+        return request('POST', '/api/v1/tasks', body, attempts=3)
+    submitted = center_planner.submit_plan(plan_res, _do_submit)
+    plan_res['submitted_tasks'] = submitted
+    return plan_res
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('health')
     commands.add_parser('list')
+    plan_cmd = commands.add_parser('plan')
+    plan_cmd.add_argument('instruction', help='High-level natural language prompt')
+    plan_cmd.add_argument('--council', choices=['auto', 'force', 'never'], default='auto')
+    plan_cmd.add_argument('--submit', action='store_true', help='Immediately submit plan to Center queue')
     submit = commands.add_parser('submit')
     submit.add_argument('--title', required=True)
     submit.add_argument('--prompt', required=True)
@@ -178,6 +229,8 @@ def main(argv):
             result = request('GET', '/api/v1/health')
         elif args.command == 'list':
             result = request('GET', '/api/v1/tasks')
+        elif args.command == 'plan':
+            result = _run_plan(args.instruction, args.council, args.submit)
         elif args.command == 'submit':
             # One request id per command, reused on retries, so a timeout never creates a duplicate task.
             result = request('POST', '/api/v1/tasks', {'title': args.title, 'prompt': args.prompt, 'scope': args.scope, 'accept': args.accept,

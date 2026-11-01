@@ -68,7 +68,7 @@ SQLite จะเลือก WAL เมื่อไลบรารีมี fix 
 
 ## ลงทะเบียนโปรเจกต์และส่งงาน
 
-คัดลอก `connector-template/project.config.json`, `connector.py` และ `.agents/` ไปยังโปรเจกต์ ปรับ project ID, center paths, scope และ quality gates ให้ตรงจริง ตรวจ scripts ของ gates ก่อนลงทะเบียน โปรเจกต์ต้องเป็น Git root ที่แน่นอน ID เปลี่ยนไปชี้ repository อื่นไม่ได้ และไม่อนุญาต registry ที่ path ซ้อนกัน
+ใช้ `scripts/install_project.py` (ดูด้านล่าง) แทนการคัดลอกเอง ตัวติดตั้งวาง `connector.py`, `project.config.json` และไฟล์กฎของ IDE ที่เลือกด้วย `--ide claude|antigravity|both` (ค่าเริ่มต้น claude) โปรเจกต์ต้องเป็น Git root ที่แน่นอน ID เปลี่ยนไปชี้ repository อื่นไม่ได้ และไม่อนุญาต registry ที่ path ซ้อนกัน ตรวจ scripts ของ gates ก่อนลงทะเบียน
 
 ```powershell
 .\.venv\Scripts\python.exe smart_router.py project register --id my-project --path 'C:\path\my-project'
@@ -143,6 +143,14 @@ Center พิสูจน์เองไม่ได้ว่า `agy` ล็อ
 
 `auto_retry: true` ใน config ให้ scheduler ส่งงานที่ `quality_gate_failed` หรือถูก review ปฏิเสธ (และไม่มี error อื่น) กลับเข้า routing เองจนครบ `max_attempts` พร้อม log ของ gate และ feedback ของ reviewer ไม่ retry งานที่ถูกยกเลิก, blocked หรือ error ด้านสิทธิ์/คอนฟิก
 
+**ไม่ให้ loop หยุดเงียบ ๆ**
+- `auto_failover: true` งานเขียนโค้ดที่ blocked ด้วย `provider_blocked` หรือ `needs_narrower_scope` (เช่น CLI ติดสิทธิ์ หรือ scope ใหญ่เกิน codex) จะถูกส่งไป AI ตัวที่ยังไม่เคยลองเอง ภายใน `max_attempts` ถ้าไม่มีตัวที่เหลือจะคง blocked ให้คนดู งานที่ blocked ตอนรีวิวไม่ถูกส่งไปเขียนใหม่ (ใช้ `retry-review`/`resume-review`)
+- งานที่ล็อก codex แต่ scope เกิน `max_model_context_bytes` ตกไป AI อื่นที่ได้รับอนุญาตเอง (บันทึก `requested_codex_unfit_scope_*` ใน audit)
+- `queue_stall_seconds` (ค่าเริ่มต้น 1800, 0 = ปิด) งานรอคิวที่ไม่มี AI รับได้เลย (`provider_unavailable_or_handoff_required` หรือ `no_independent_reviewer_available`) เกินเวลานี้จะเป็น `blocked` / `no_provider_available` พร้อมเหตุผล การรอ capacity, quota floor, dependency และ backoff ไม่ถูกตัด
+- ไม่เลือกผู้เขียนถ้าไม่เหลือ AI อีกค่ายที่ตรวจได้ (`no_independent_reviewer_available`) เพื่อไม่ให้งานไปค้างที่ขั้นรอผู้ตรวจ
+- การ์ดงานบน dashboard แสดงบรรทัดล่าสุดของ log ที่ขั้นกำลังเขียน (`activity`)
+- Google/agy รับสิทธิ์ `read_file` เฉพาะ worktree และโฟลเดอร์ run ของงานนั้นผ่าน `--settings` ต่อ session ไม่แก้ settings.json ของผู้ใช้
+
 ### ตรวจหา gate ของโปรเจกต์โดยไม่เดา
 
 `install_project.py --detect-gates` ใช้เฉพาะคำสั่งที่โปรเจกต์ประกาศไว้จริง (`npm run lint/typecheck/test/build/test:e2e`, pytest หรือ unittest) ไม่เจอก็ไม่สร้างให้ ดูรายละเอียดด้วย `python scripts/gate_presets.py PROJECT_PATH`
@@ -163,6 +171,10 @@ Center พิสูจน์เองไม่ได้ว่า `agy` ล็อ
 - **Usage meter:** `center_quota.py` เป็นเจ้าของเดียว: scheduler ดึงทุก 1 นาทีแล้วเขียน `quota-last.json` ใน state dir ส่วน routing และ dashboard อ่านไฟล์นั้น ถ้าอ่านแหล่งใดไม่ได้จะแสดงค่าล่าสุดที่อ่านได้ (ติดป้าย stale) และจำค่าข้ามการรีสตาร์ท ไม่อ่านไฟล์ credential ใด ๆ: Codex จาก session log, Claude จากการเรียก CLI ของ Claude เองด้วย Haiku แบบเล็กที่สุดทุก 5 นาที (ใช้ quota เล็กน้อย) หรือไฟล์ statusline, Google จาก language server ของ Antigravity บน loopback ซึ่งต้องอ่าน csrf token ของ session ที่ไฟล์ daemon ของมัน (ข้อยกเว้นที่ระบุไว้ตรงนี้ ไม่ใช่ credential ของบริการภายนอก)
 
 การรันงาน: `submit` ปกติให้ scheduler ของ Center เลือกและรันเอง ถ้าต้องการให้ session Claude Code ทำเอง ให้ใส่ `--hold-for-ide` เพื่อไม่ให้ scheduler หยิบงานไปก่อน
+
+## สั่งงานจาก Google Antigravity
+
+`install_project.py --ide antigravity` (หรือ `both`) วาง `.agents/rules/ai-command-center.md` (always_on) และ `.agents/skills/ai-command-center/SKILL.md` ที่ใช้ `connector.py` แบบ HTTP เดียวกับ Claude Code (`health/submit/wait/report/apply`) ไม่ใช้โปรโตคอล handoff เก่า (claim/worker-start/heartbeat) ไฟล์ของเรา git-exclude ไว้ checkout จึงสะอาดสำหรับ Center ข้อจำกัด: ตัวติดตั้งไม่ได้ตั้ง edit guard (hook ที่บล็อกการแก้ไฟล์ตรง ๆ) ให้ Antigravity เหมือนที่ทำกับ Claude Code ข้อห้ามจึงอาศัยกฎในไฟล์เท่านั้น ส่วนผู้ลงมือเขียนโค้ดยังเป็น Center เลือกจาก codex/claude/google เหมือนเดิม การเปลี่ยน IDE ไม่แก้ปัญหา Gemini แบบ headless
 
 ## Claude Code (VS Code) handoff
 

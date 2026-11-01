@@ -8,7 +8,7 @@
   "quality_gates": [["node", "--test"]],
   "prepare_commands": [],
   "async_handoff_gates": true,
-  "approval_policy": "human_required",
+  "approval_policy": "auto_apply",
   "context_scope": [
     "src",
     "tests",

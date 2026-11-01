@@ -20,6 +20,10 @@ const waitingLabels = {
   active_assignment: 'มีผู้รับงานอยู่แล้ว', project_capacity: 'รอช่องทำงานของโปรเจกต์ว่าง',
   awaiting_independent_or_human_review: 'รอผู้ตรวจจากอีกค่ายหรือผู้ใช้ตรวจโค้ด',
   provider_unavailable_or_handoff_required: 'AI ยังไม่พร้อม หรือรอรับงานใน IDE',
+  no_independent_reviewer_available: 'ยังไม่มี AI อีกค่ายที่ตรวจงานนี้ได้ (ต้องเป็นคนละค่ายกับผู้เขียน)',
+  no_provider_available: 'รอคิวนานเกินกำหนดโดยไม่มี AI ที่รับงานได้ ปรับ scope หรือเปิดใช้ AI แล้วสั่ง retry',
+  provider_blocked: 'AI ทำต่อไม่ได้ (เช่น ติดสิทธิ์ของ CLI) ระบบจะลองสลับไป AI ตัวอื่นเอง',
+  needs_narrower_scope: 'ขอบเขตงานใหญ่เกินที่ AI ตัวนี้รับได้ ระบบจะลองสลับไป AI ตัวอื่นเอง',
   eligible_by_capacity_capability_health_quality_and_observed_usage: 'พร้อมรับงาน',
 };
 
@@ -184,6 +188,34 @@ function columnOf(status) {
   return found ? found[0] : 'todo';
 }
 
+async function approveTask(taskId, btn) {
+  if (!confirm(`ยืนยันการอนุมัติงาน ${taskId} และนำโค้ดเข้าโปรเจกต์ใช่หรือไม่?`)) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'กำลังอนุมัติ...';
+  }
+  try {
+    const res = await fetch(`/api/tasks/${taskId}/approve`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      alert(`การอนุมัติล้มเหลว: ${data.error || 'Unknown error'}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '✓ อนุมัติ';
+      }
+    } else {
+      await refresh();
+      if (drawerState.id === taskId) details(taskId);
+    }
+  } catch (err) {
+    alert(`เกิดข้อผิดพลาด: ${err.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✓ อนุมัติ';
+    }
+  }
+}
+
 function renderTaskView(data) {
   const task = data.task;
   const config = parseJson(task.config_json) || {};
@@ -193,11 +225,28 @@ function renderTaskView(data) {
   view.replaceChildren();
 
   const badge = node('span', `status-badge board-${columnOf(task.status)}-badge`, STEP_LABELS[task.status] || task.status);
+  badge.dataset.status = task.status;
   const head = node('div', 'view-head');
   head.append(node('h3', 'view-title', task.title), badge, node('span', 'muted', `${task.project_id} · รหัส ${task.id} · สถานะภายใน: ${task.status}`));
   view.append(head);
-  const reason = task.error || events.filter(e => e.event === 'blocked').map(e => e.info.reason).pop();
+  if (task.status === 'ready_for_human_approval') {
+    const approveBar = node('div', 'approve-banner');
+    approveBar.style.cssText = 'background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 8px; padding: 12px 16px; margin: 12px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px;';
+    const approveText = node('div', '', '🎉 งานนี้ผ่าน Quality Gates และ Independent Review ครบถ้วนแล้ว พร้อมนำโค้ดเข้าโปรเจกต์');
+    approveText.style.cssText = 'font-weight: 500; color: #10b981;';
+    const approveBtn = node('button', 'btn-approve', '✓ อนุมัติและนำโค้ดเข้าโปรเจกต์');
+    approveBtn.type = 'button';
+    approveBtn.style.cssText = 'background: #10b981; color: #fff; font-weight: bold; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; white-space: nowrap;';
+    approveBtn.addEventListener('click', () => approveTask(task.id, approveBtn));
+    approveBar.append(approveText, approveBtn);
+    view.append(approveBar);
+  }
+  const isStuck = task.status === 'blocked' || task.status === 'failed';
+  const reason = isStuck ? (task.error || events.filter(e => e.event === 'blocked').map(e => e.info.reason).pop()) : null;
   if (reason) view.append(node('p', 'view-alert', `สาเหตุที่ติดขัด/ล้มเหลว: ${waitingLabels[reason] || reason}`));
+  else if (task.status === 'running' && events.some(e => (e.info && e.info.reason && e.info.reason.includes('auto_failover')))) {
+    view.append(node('p', 'view-alert', '🔄 ระบบสลับค่าย AI อัตโนมัติ: AI ตัวก่อนหน้าติดขัด กำลังให้ AI ตัวนี้ทำงานต่อ'));
+  }
 
   view.append(viewSection('ภาพรวม', keyValues([
     ['โหมด', task.mode], ['ความซับซ้อน (1-5)', task.complexity], ['ครั้งที่ทำ', `${task.attempt} จาก ${task.max_attempts}`], ['ครั้งที่ตรวจ', task.review_attempt],
@@ -303,9 +352,11 @@ function stepper(task, events) {
     position = seen.length ? Math.max(...seen) : 0;
   }
   const row = node('ol', 'stepper');
-  FLOW.forEach(([, label], index) => {
+  FLOW.forEach(([status, label], index) => {
     const state = index < position ? 'done' : index === position ? (stalled ? 'stalled' : 'current') : 'todo';
-    row.append(node('li', `step step-${state}`, label));
+    const step = node('li', `step step-${state}`, label);
+    step.dataset.status = status;
+    row.append(step);
   });
   return row;
 }
@@ -488,6 +539,16 @@ function renderRunningNow(tasksById, project) {
   box.replaceChildren();
   const sessions = snapshot.sessions.filter(s => !project || tasksById.get(s.task_id)?.project_id === project);
   box.append(node('h3', '', `กำลังรันอยู่ตอนนี้ (${format(sessions.length)} session)`));
+  const usage = node('div', 'cap-row');
+  for (const [name, provider] of Object.entries(snapshot.providers || {})) {
+    if (typeof provider?.capacity !== 'number') continue;
+    const used = snapshot.sessions.filter(s => s.provider === name).length;
+    const chip = node('span', `cap-chip${used >= provider.capacity && provider.capacity > 0 ? ' cap-full' : ''}${provider.availability === 'unavailable' ? ' cap-off' : ''}`,
+      `${names[name] || name} ${used}/${provider.capacity}`);
+    chip.style.setProperty('--accent', colors[name] || '#96a7be');
+    usage.append(chip);
+  }
+  if (usage.childNodes.length) box.append(usage);
   if (!sessions.length) {
     box.append(node('p', 'muted', 'ไม่มีงานที่กำลังรันอยู่ ณ ตอนนี้'));
     return;
@@ -497,6 +558,7 @@ function renderRunningNow(tasksById, project) {
     const step = task?.plan?.[session.role];
     const row = node('div', 'run-row');
     row.style.setProperty('--accent', colors[session.provider] || '#96a7be');
+    row.dataset.status = task?.status || 'running';
     row.append(node('strong', 'run-ai', names[session.provider] || session.provider),
       node('span', '', `${ROLE_LABELS[session.role] || session.role} · ${ADAPTER_LABELS[session.adapter] || session.adapter}`),
       node('span', 'run-model', `${session.model || step?.model || 'model ตามค่าเริ่มต้นของ CLI'}${step?.effort ? ' · effort ' + step.effort : ''}`),
@@ -508,8 +570,10 @@ function renderRunningNow(tasksById, project) {
 
 function boardCard(task) {
   const card = node('article', 'board-card');
-  card.append(node('strong', '', task.title), node('span', 'muted', `${task.project_id} · ครั้งที่ ${task.attempt || 0} · ${ago(task.updated_at)}`),
-    node('span', 'board-step', STEP_LABELS[task.status] || task.status));
+  const step = node('span', 'board-step', STEP_LABELS[task.status] || task.status);
+  step.dataset.status = task.status;
+  card.dataset.status = task.status;
+  card.append(node('strong', '', task.title), node('span', 'muted', `${task.project_id} · ครั้งที่ ${task.attempt || 0} · ${ago(task.updated_at)}`), step);
   const reason = task.waiting_reason || task.error;
   if (reason && reason !== 'ready') card.append(node('small', 'task-reason', waitingLabels[reason] || reason));
   const write = stepText(task.plan?.implementation);
@@ -517,6 +581,17 @@ function boardCard(task) {
   if (write) card.append(node('small', 'board-ai', 'เขียน: ' + write));
   if (check) card.append(node('small', 'board-ai', 'ตรวจ: ' + check));
   if (!write && !check) card.append(node('small', 'muted', task.provider ? names[task.provider] || task.provider : 'ยังไม่ได้เลือก AI'));
+  if (task.activity) card.append(node('small', 'board-activity', task.activity));
+    if (task.status === 'ready_for_human_approval') {
+    const approveBtn = node('button', 'btn-approve-card', '✓ อนุมัติ');
+    approveBtn.type = 'button';
+    approveBtn.style.cssText = 'background: #10b981; color: #fff; font-weight: bold; padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; margin-bottom: 6px; width: 100%;';
+    approveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      approveTask(task.id, approveBtn);
+    });
+    card.append(approveBtn);
+  }
   const button = node('button', '', 'ดูรายละเอียด');
   button.type = 'button';
   button.addEventListener('click', () => details(task.id));
@@ -578,7 +653,9 @@ function renderTasks() {
     row.insertCell().textContent = task.title;
     row.insertCell().textContent = task.project_id;
     const state = row.insertCell();
-    state.append(node('span', '', task.status));
+    const label = node('span', 'status-tag', task.status);
+    label.dataset.status = task.status;
+    state.append(label);
     const reason = task.waiting_reason || task.error;
     if (reason && reason !== 'ready') state.append(node('small', 'task-reason', waitingLabels[reason] || reason));
     const provider = row.insertCell();
@@ -596,6 +673,214 @@ function renderTasks() {
   }
 }
 
+function renderVirtualOffice() {
+  if (!snapshot) return;
+
+  // 1. Central Command Core
+  const activeSessions = snapshot.sessions || [];
+  const coreState = el('core-state');
+  const coreSub = el('core-sub');
+  if (coreState && coreSub) {
+    if (snapshot.service?.running) {
+      coreState.textContent = activeSessions.length > 0 ? `ONLINE · ${activeSessions.length} RUNNING` : 'ONLINE · READY';
+      coreSub.textContent = `${snapshot.projects.length} โปรเจกต์ · 3 AI Providers`;
+    } else {
+      coreState.textContent = 'OFFLINE / STOPPED';
+      coreSub.textContent = 'เซอร์วิสหยุดทำงาน';
+    }
+  }
+
+  const tasksById = new Map((snapshot.tasks || []).map(t => [t.id, t]));
+
+  // 2. AI Pods: claude, codex, google
+  const pods = ['claude', 'codex', 'google'];
+  for (const name of pods) {
+    const session = activeSessions.find(s => s.provider === name);
+    const pill = el(`${name}-pill`);
+    const indicator = el(`${name}-indicator`);
+    const model = el(`${name}-model`);
+    const taskElem = el(`${name}-task`);
+    const podCard = el(`pod-${name}`);
+
+    if (session) {
+      const task = tasksById.get(session.task_id);
+      const isReview = session.role === 'review';
+      if (pill) {
+        pill.className = `pod-pill ${isReview ? 'reviewing' : 'working'}`;
+        pill.textContent = isReview ? 'REVIEWING' : 'WORKING';
+      }
+      if (indicator) {
+        indicator.className = 'pod-indicator working';
+      }
+      if (model) {
+        model.textContent = session.model || (isReview ? 'Reviewer' : 'Engineer');
+      }
+      if (taskElem) {
+        taskElem.textContent = `${task?.project_id ? `[${task.project_id}] ` : ''}${task?.title || session.task_id}`;
+      }
+      if (podCard) {
+        podCard.style.cursor = 'pointer';
+        podCard.title = 'คลิกเพื่อดูรายละเอียดและผลลัพธ์สด';
+        podCard.onclick = () => details(session.task_id);
+      }
+    } else {
+      const provInfo = snapshot.providers?.[name];
+      const isUnavailable = provInfo?.availability === 'unavailable';
+      if (pill) {
+        pill.className = `pod-pill ${isUnavailable ? 'unavailable' : 'idle'}`;
+        pill.textContent = isUnavailable ? 'OFFLINE' : 'IDLE';
+      }
+      if (indicator) {
+        indicator.className = 'pod-indicator idle';
+      }
+      if (taskElem) {
+        taskElem.textContent = isUnavailable ? 'ยังไม่พร้อมใช้งาน' : 'พร้อมรับงานใหม่';
+      }
+      if (podCard) {
+        podCard.style.cursor = 'default';
+        podCard.title = '';
+        podCard.onclick = null;
+      }
+    }
+  }
+
+  // 3. Director Suite (Human Approval Desk)
+  const waitingTasks = (snapshot.tasks || []).filter(t => t.status === 'ready_for_human_approval');
+  const dirPill = el('director-pill');
+  const dirIndicator = el('director-indicator');
+  const dirTask = el('director-task');
+  const dirSlot = el('director-action-slot');
+  const dirPod = el('pod-director');
+
+  if (waitingTasks.length > 0) {
+    const currentWait = waitingTasks[0];
+    if (dirPill) {
+      dirPill.className = 'pod-pill alert';
+      dirPill.textContent = `ACTION (${waitingTasks.length})`;
+    }
+    if (dirIndicator) {
+      dirIndicator.className = 'pod-indicator alert';
+    }
+    if (dirTask) {
+      dirTask.textContent = `[${currentWait.project_id}] ${currentWait.title}${waitingTasks.length > 1 ? ` (+อีก ${waitingTasks.length - 1} งาน)` : ''}`;
+    }
+    if (dirSlot) {
+      dirSlot.replaceChildren();
+      const approveBtn = node('button', 'btn-director-approve', `✓ อนุมัติงานนี้ (${currentWait.id.slice(0, 8)}) ทันที`);
+      approveBtn.type = 'button';
+      approveBtn.onclick = (e) => {
+        e.stopPropagation();
+        approveTask(currentWait.id, approveBtn);
+      };
+      dirSlot.append(approveBtn);
+    }
+    if (dirPod) {
+      dirPod.style.cursor = 'pointer';
+      dirPod.title = 'คลิกเพื่อตรวจงานและหลักฐานทั้งหมด';
+      dirPod.onclick = () => details(currentWait.id);
+    }
+  } else {
+    if (dirPill) {
+      dirPill.className = 'pod-pill director';
+      dirPill.textContent = 'READY';
+    }
+    if (dirIndicator) {
+      dirIndicator.className = 'pod-indicator normal';
+    }
+    if (dirTask) {
+      dirTask.textContent = 'ไม่มีงานรออนุมัติ · ทุกโปรเจกต์ราบรื่น';
+    }
+    if (dirSlot) {
+      dirSlot.replaceChildren();
+    }
+    if (dirPod) {
+      dirPod.style.cursor = 'default';
+      dirPod.title = '';
+      dirPod.onclick = null;
+    }
+  }
+}
+
+function selectViewMode(mode) {
+  const isOffice = mode === 'office';
+  const officeSection = el('virtual-office-section');
+  const boardSection = el('board');
+  const btnOffice = el('btn-view-office');
+  const btnBoard = el('btn-view-board');
+
+  if (officeSection) officeSection.hidden = !isOffice;
+  if (boardSection) boardSection.hidden = isOffice;
+  if (btnOffice) btnOffice.classList.toggle('active', isOffice);
+  if (btnBoard) btnBoard.classList.toggle('active', !isOffice);
+
+  try { localStorage.setItem('center-view-mode', isOffice ? 'office' : 'board'); } catch {}
+}
+
+function initialViewMode() {
+  try {
+    return localStorage.getItem('center-view-mode') || 'office';
+  } catch {
+    return 'office';
+  }
+}
+
+function initQuickDispatch() {
+  const btn = el('dispatch-btn');
+  const input = el('dispatch-prompt');
+  const projectSelect = el('dispatch-project');
+
+  async function handleDispatch() {
+    if (!input || !projectSelect) return;
+    const prompt = input.value.trim();
+    const projectId = projectSelect.value;
+    if (!prompt) {
+      input.focus();
+      return;
+    }
+    if (!projectId) {
+      alert('กรุณาเลือกโปรเจกต์ปลายทาง');
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ กำลังวางแผนและส่งงาน...';
+    }
+
+    try {
+      const res = await fetch('/api/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, prompt })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert('ส่งงานไม่สำเร็จ: ' + (data.error || 'Unknown error'));
+      } else {
+        input.value = '';
+        await refresh();
+      }
+    } catch (err) {
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🚀 สั่งงานทันที';
+      }
+    }
+  }
+
+  if (btn) btn.addEventListener('click', handleDispatch);
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleDispatch();
+      }
+    });
+  }
+}
+
 async function refresh() {
   if (refreshing) return;
   refreshing = true;
@@ -604,16 +889,31 @@ async function refresh() {
     const response = await fetch('/api/status');
     if (!response.ok) throw new Error('unavailable');
     snapshot = await response.json();
+    window.snapshot = snapshot;
     el('health').className = '';
     el('health').textContent = 'เชื่อมต่อแล้ว · อัปเดต ' + new Date(snapshot.updated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
     el('projects').textContent = snapshot.projects.length;
     el('sessions').textContent = snapshot.sessions.length + ' / ' + (snapshot.capacity ? snapshot.capacity.usable_global : snapshot.global_capacity) + (snapshot.capacity && snapshot.capacity.ide_reserved > 0 ? ' (สำรอง IDE ' + snapshot.capacity.ide_reserved + ')' : '');
     el('approval-count').textContent = snapshot.tasks.filter(t => t.status === 'ready_for_human_approval').length;
     el('live').textContent = snapshot.live_execution ? 'เปิดใช้งาน' : 'ปิดไว้';
+
+    // Update dispatch project options if available
+    const dispatchSelect = el('dispatch-project');
+    if (dispatchSelect && snapshot.projects) {
+      const currentVal = dispatchSelect.value;
+      const projects = snapshot.projects.map(p => p.id).sort();
+      if (dispatchSelect.options.length <= 1 || dispatchSelect.dataset.loaded !== projects.join(',')) {
+        dispatchSelect.replaceChildren(...projects.map(id => new Option(id, id)));
+        if (projects.includes(currentVal)) dispatchSelect.value = currentVal;
+        dispatchSelect.dataset.loaded = projects.join(',');
+      }
+    }
+
     renderService();
     renderUsage();
     renderBoard();
     renderTasks();
+    renderVirtualOffice();
   } catch {
     el('health').textContent = 'ติดต่อ Center ไม่ได้ — ตรวจ doctor / service-status ไม่มีการเริ่ม worker แทนโดยอัตโนมัติ';
     el('health').className = 'error';
@@ -637,6 +937,15 @@ window.addEventListener('hashchange', () => selectTab(initialTab()));
 selectTab(initialTab());
 el('task-search').addEventListener('input', renderTasks);
 el('task-status').addEventListener('change', renderTasks);
+
+// Initialize Virtual Office View Mode and Quick Dispatch
+const btnViewOffice = el('btn-view-office');
+const btnViewBoard = el('btn-view-board');
+if (btnViewOffice) btnViewOffice.addEventListener('click', () => selectViewMode('office'));
+if (btnViewBoard) btnViewBoard.addEventListener('click', () => selectViewMode('board'));
+selectViewMode(initialViewMode());
+initQuickDispatch();
+
 refresh();
 setInterval(refresh, 5000);
 refreshQuota();

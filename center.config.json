@@ -1,16 +1,16 @@
 {
   "storage": "sqlite",
-  "global_capacity": 4,
+  "global_capacity": 3,
   "lease_seconds": 30,
   "heartbeat_seconds": 5,
-  "worker_timeout_seconds": 900,
+  "worker_timeout_seconds": 1800,
   "max_attempts": 3,
   "retry_base_seconds": 5,
   "max_checkpoint_bytes": 10485760,
-  "max_model_context_bytes": 65536,
+  "max_model_context_bytes": 2097152,
   "providers": {
     "codex": {
-      "capacity": 2,
+      "capacity": 1,
       "availability": "available",
       "reason": "live_implementation_and_independent_review_verified",
       "entitlement": "subscription",
@@ -58,7 +58,7 @@
       ]
     },
     "claude": {
-      "capacity": 2,
+      "capacity": 1,
       "availability": "available",
       "reason": "live_implementation_and_independent_review_verified",
       "entitlement": "subscription",
@@ -104,7 +104,7 @@
       ]
     },
     "google": {
-      "capacity": 2,
+      "capacity": 1,
       "availability": "available",
       "reason": "agy_headless_adapter_live_verified_implementation_with_independent_review",
       "entitlement": "subscription",
@@ -196,6 +196,8 @@
     }
   },
   "auto_retry": true,
+  "auto_failover": true,
+  "queue_stall_seconds": 1800,
   "ide_reserved_sessions": 1,
   "quota_floor": {
     "five_hour": 10,

@@ -75,6 +75,22 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn('codex', names)
         self.assertIn('claude', names)
 
+    def test_a_task_pinned_to_codex_falls_back_when_the_scope_cannot_fit(self):
+        self.add_sources(big=200)
+        self.center.config['max_model_context_bytes'] = 50
+        task = self.live_task()
+        row = self.center.store.task(task['id'])
+        names = self.center.candidates(row, 'implementation', 'codex')
+        self.assertNotIn('codex', names)
+        self.assertTrue(names)
+        self.assertTrue(any(n.startswith('requested_codex_unfit_scope_') for n in self.center.candidate_notes[task['id']]))
+
+    def test_a_task_pinned_to_codex_stays_pinned_when_the_scope_fits(self):
+        self.add_sources(small=5)
+        self.center.config['max_model_context_bytes'] = 50
+        row = self.center.store.task(self.live_task()['id'])
+        self.assertEqual(self.center.candidates(row, 'implementation', 'codex'), ['codex'])
+
     def test_the_skip_is_recorded_for_the_audit_trail(self):
         self.add_sources(big=200)
         self.center.config['max_model_context_bytes'] = 50

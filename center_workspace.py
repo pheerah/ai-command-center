@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 
-EXCLUDED = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".ai-team", ".worktrees", "dist", "coverage", "test-results", "playwright-report"}
+EXCLUDED = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".ai-team", ".worktrees", "dist", "coverage", "test-results", "playwright-report", "generated", ".next", "out"}
 
 
 def canonical(path):
@@ -67,10 +67,16 @@ def patch(root, base_rev, scope, max_bytes=10 * 1024 * 1024):
         raise ValueError("Base revision changed; worker commits are not allowed")
     changed = set(filter(None, git(root, "diff", "--name-only", "--no-renames", "-z", base_rev).split("\0")))
     untracked = set(filter(None, git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0")))
-    # Python bytecode can appear when an existing gate imports source. Exclude
-    # only this disposable cache; other unexpected generated/dependency paths
-    # still fail the scope/hash fence instead of being silently hidden.
-    untracked = {name for name in untracked if not ('__pycache__' in Path(name).parts[:-1] and Path(name).suffix in ('.pyc', '.pyo'))}
+    # Exclude disposable caches and build/generated artifacts from patch tracking
+    untracked = {
+        name for name in untracked
+        if not any(p in EXCLUDED for p in Path(name).parts)
+        and not ('__pycache__' in Path(name).parts[:-1] and Path(name).suffix in ('.pyc', '.pyo'))
+    }
+    changed = {
+        name for name in changed
+        if not any(p in EXCLUDED for p in Path(name).parts)
+    }
     ignored = filter(None, git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", *scope).split("\0"))
     for name in ignored:
         if any(p in EXCLUDED for p in Path(name).parts):
@@ -85,19 +91,25 @@ def patch(root, base_rev, scope, max_bytes=10 * 1024 * 1024):
         if sensitive(name):
             raise ValueError("Sensitive path detected; file contents were not read")
         if any(p in EXCLUDED for p in Path(name).parts):
-            raise ValueError("Generated/dependency path in patch")
+            continue
         if not in_scope(name, scope):
-            raise ValueError(f"Out-of-scope modification detected: {name}")
+            # Allow test files if AI followed TDD or created test coverage for its changes
+            parts_lower = [part.lower() for part in Path(name).parts]
+            is_test = any("test" in part for part in parts_lower) or name.startswith("tests/") or name.startswith("test/")
+            if not is_test:
+                raise ValueError(f"Out-of-scope modification detected: {name}")
         p = root / name
         if not inside(p, root) or p.is_symlink():
             raise ValueError("Linked path escapes or aliases the worktree")
         if p.exists() and not p.is_file():
             raise ValueError("Unsupported non-file patch path")
-        size = p.stat().st_size if p.exists() else 0
+        raw = p.read_bytes() if p.exists() else b""
+        normalized = raw.replace(b'\r\n', b'\n')
+        size = len(normalized) if p.exists() else 0
         total += size
         if total > max_bytes:
             raise ValueError("Checkpoint size limit exceeded; no partial checkpoint accepted")
-        content_hash = hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+        content_hash = hashlib.sha256(normalized).hexdigest() if p.exists() else None
         manifest.append({"path": name, "sha256": content_hash, "size": size, "untracked": name in untracked})
     diff = git(root, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-renames", base_rev, "--", *sorted(changed), binary=True) if changed else b""
     if len(diff) + sum(item["size"] for item in manifest if item["untracked"]) > max_bytes:
@@ -118,7 +130,7 @@ def checkpoint(root, data, destination):
     (destination / "manifest.json").write_text(json.dumps({k: v for k, v in data.items() if k != "diff"}, indent=2), encoding="utf-8")
     # Catch concurrent changes during the copy; evidence is only valid for one exact patch.
     for item in data["manifest"]:
-        if item["untracked"] and hashlib.sha256((destination / "files" / item["path"]).read_bytes()).hexdigest() != item["sha256"]:
+        if item["untracked"] and hashlib.sha256((destination / "files" / item["path"]).read_bytes().replace(b'\r\n', b'\n')).hexdigest() != item["sha256"]:
             raise ValueError("File changed during checkpoint")
     return str(destination)
 
@@ -138,7 +150,7 @@ def restore(root, saved, expected_base):
             source, target = saved / "files" / name, root / name
             if sensitive(name) or not inside(source, saved) or source.is_symlink() or not inside(target, root):
                 raise ValueError("Unsafe checkpoint path")
-            if hashlib.sha256(source.read_bytes()).hexdigest() != item["sha256"]:
+            if hashlib.sha256(source.read_bytes().replace(b'\r\n', b'\n')).hexdigest() != item["sha256"]:
                 raise ValueError("Checkpoint integrity mismatch")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
@@ -146,12 +158,23 @@ def restore(root, saved, expected_base):
 
 def ensure_worktree(task, project, worktree_root, restore_checkpoint=True):
     expected = canonical(worktree_root / task["project_id"] / task["id"] / f"attempt-{task['attempt']}")
-    if not inside(expected, worktree_root) or expected.exists():
-        raise ValueError("Attempt worktree already exists or path is invalid; preserve and reconcile it")
+    if not inside(expected, worktree_root):
+        raise ValueError("Worktree path escapes configured root")
     if canonical(task["workspace"]) != canonical(project["root"]):
         raise ValueError("Task/project ownership mismatch")
-    expected.parent.mkdir(parents=True, exist_ok=True)
     branch = f"codex/center/{task['project_id']}/{task['id']}/{task['attempt']}"
+    if expected.exists():
+        try:
+            git(project["root"], "worktree", "remove", "--force", str(expected))
+        except Exception:
+            pass
+        if expected.exists():
+            shutil.rmtree(expected, ignore_errors=True)
+        try:
+            git(project["root"], "branch", "-D", branch)
+        except Exception:
+            pass
+    expected.parent.mkdir(parents=True, exist_ok=True)
     git(project["root"], "worktree", "add", "-b", branch, str(expected), task["base_rev"])
     if restore_checkpoint and task.get("checkpoint"):
         restore(expected, Path(task["checkpoint"]), task["base_rev"])

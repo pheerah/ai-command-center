@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Dev Command Center</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script defer src="/dashboard.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="eyebrow"><span class="signal"></span> LOCAL WORKSPACE · SQLITE</div><h1>AI Dev Command Center</h1><p>ติดตามงานของทุกโปรเจกต์ และดูการใช้งาน AI แยกกันคนละแท็บ</p></div>
+    <div class="header-actions"><button id="refresh" type="button">อัปเดตสถานะ</button></div>
+  </header>
+  <div id="health" role="status" aria-live="polite">กำลังเชื่อมต่อ Center…</div>
+  <div id="scheduler-info" class="service-panel" aria-label="ตัวประมวลผลคิว">
+    <div><span class="muted">ตัวประมวลผลคิว</span><strong id="scheduler-state">กำลังตรวจสถานะ…</strong></div>
+    <div><span id="scheduler-mode" class="muted"></span><span id="scheduler-age" class="muted"></span></div>
+    <p id="scheduler-note" class="muted"></p>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="หน้าจอ">
+    <button id="tab-monitor" class="tab" role="tab" type="button" aria-controls="panel-monitor" aria-selected="true">Monitor งาน</button>
+    <button id="tab-usage" class="tab" role="tab" type="button" aria-controls="panel-usage" aria-selected="false">Usage Meter</button>
+  </nav>
+
+  <div id="panel-monitor" role="tabpanel" aria-labelledby="tab-monitor">
+    <section class="overview" aria-label="สถานะระบบ">
+      <div class="overview-item"><span>โปรเจกต์ที่ลงทะเบียน</span><strong id="projects">—</strong></div>
+      <div class="overview-item"><span>Session ที่ครองงาน</span><strong id="sessions">—</strong></div>
+      <div class="overview-item"><span>รออนุมัติในรายการ</span><strong id="approval-count">—</strong></div>
+      <div class="overview-item"><span>อนุญาตให้ AI ทำงาน</span><strong id="live">—</strong></div>
+    </section>
+    <div id="status-chips" class="status-chips" aria-label="จำนวนงานตามสถานะ"></div>
+
+    <section id="board" aria-labelledby="board-title">
+      <div class="section-heading"><div><div class="eyebrow">LIVE BOARD</div><h2 id="board-title">ตอนนี้ใครกำลังทำอะไร</h2></div><label class="window-label">โปรเจกต์ <select id="board-project" aria-label="กรองโปรเจกต์"><option value="">ทุกโปรเจกต์</option></select></label></div>
+      <div id="running-now" class="running-now" aria-live="polite"></div>
+      <div id="board-columns" class="board"></div>
+      <p id="board-note" class="muted"></p>
+    </section>
+
+    <section id="queue" aria-labelledby="queue-title">
+      <div class="section-heading"><div><div class="eyebrow">ALL TASKS</div><h2 id="queue-title">รายการงานทั้งหมด</h2></div><span class="muted">กด “ดู” เพื่อเปิดรายละเอียดเต็มของงาน · งาน mock ไม่ใช่การอนุมัติจริง</span></div>
+      <div class="queue-filters"><label>ค้นหางาน <input id="task-search" type="search" placeholder="ชื่อ โปรเจกต์ หรือรหัสงาน"></label><label>สถานะ <select id="task-status" aria-label="กรองสถานะงาน"><option value="">ทุกสถานะ</option><option value="queued">queued</option><option value="running">running</option><option value="waiting_for_independent_review">waiting_for_independent_review</option><option value="ready_for_human_approval">ready_for_human_approval</option><option value="blocked">blocked</option><option value="failed">failed</option><option value="approved">approved</option></select></label><span id="task-count" class="muted"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>งาน</th><th>โปรเจกต์</th><th>สถานะ / เหตุผลที่รอ</th><th>ผู้รับงาน</th><th>โหมด</th><th>หลักฐาน</th></tr></thead><tbody id="tasks"></tbody></table></div>
+    </section>
+  </div>
+
+  <div id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" hidden>
+    <section id="usage" aria-labelledby="usage-title">
+      <div class="section-heading"><div><div class="eyebrow">OBSERVED ACTIVITY</div><h2 id="usage-title">Usage Meter</h2></div><label class="window-label">ช่วงเวลา <select id="usage-window" aria-label="ช่วงเวลา Usage Meter"><option value="7">7 วันล่าสุด</option><option value="1">วันนี้</option><option value="30">30 วันล่าสุด</option></select></label></div>
+      <p class="section-note">เปอร์เซ็นต์ที่เหลือของ 5 ชั่วโมง/รายสัปดาห์ อ่านจากสถานะของแต่ละ CLI (ไม่ใช่ยอดเรียกเก็บเงิน) · กราฟ token ด้านล่างนับเฉพาะงานที่ผ่าน Center</p>
+      <div class="provider-grid" id="providers"></div>
+      <div class="activity-panel">
+        <div class="chart-heading"><div><h3>Token ที่บันทึกได้รายวัน</h3><p id="usage-note" class="muted">กำลังอ่านข้อมูลการใช้งาน…</p></div><div class="chart-total"><strong id="usage-total">—</strong><span>tokens ในช่วงที่เลือก</span></div></div>
+        <div class="chart-scroll"><div id="usage-chart" class="chart" aria-label="กราฟ token ที่ CLI รายงาน"></div></div>
+        <div class="chart-footer"><div class="legend"><span><i class="codex"></i>ChatGPT</span><span><i class="claude"></i>Claude</span><span><i class="google"></i>Google</span></div><span>วันที่และเวลาประเทศไทย</span></div>
+      </div>
+      <p id="usage-source" class="muted"></p>
+    </section>
+  </div>
+
+  <aside id="task-drawer" class="drawer" hidden aria-labelledby="drawer-title">
+    <div class="drawer-bar"><h2 id="drawer-title">รายละเอียดงาน</h2><button id="drawer-close" type="button">ปิด (Esc)</button></div>
+    <div id="task-view" class="task-view">
+      <section id="live-panel" class="live-panel" aria-label="ความคืบหน้าแบบสด" hidden>
+        <div class="live-head"><h3>ตอนนี้กำลังทำอะไร</h3><span id="live-stamp" class="live-stamp"></span><label class="live-pause"><input id="live-pause" type="checkbox"> หยุดอัปเดตอัตโนมัติ</label></div>
+        <div id="live-body" aria-live="polite"></div>
+      </section>
+      <div id="task-static">เลือกงานเพื่อดูรายละเอียด</div>
+    </div>
+    <details id="detail-panel"><summary>ข้อมูลดิบทั้งหมด (JSON)</summary><pre id="detail">เลือก “ดู” ในแถวงานเพื่ออ่านประวัติและหลักฐาน</pre></details>
+  </aside>
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <footer>อัปเดตทุก 5 วินาทีโดยไม่เรียก AI · เปลี่ยนงานผ่าน Center CLI · ทุกงานรอ human approval ก่อนเสมอ</footer>
+</main>
+</body>
+</html>

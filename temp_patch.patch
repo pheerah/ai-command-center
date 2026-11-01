@@ -1,0 +1,491 @@
+diff --git a/src/app/(horoscope)/zodiac/page.tsx b/src/app/(horoscope)/zodiac/page.tsx
+index 37ce21b..3b380aa 100644
+--- a/src/app/(horoscope)/zodiac/page.tsx
++++ b/src/app/(horoscope)/zodiac/page.tsx
+@@ -3,7 +3,7 @@
+ import { useEffect, useMemo, useState } from "react";
+ import Link from "next/link";
+ import { motion } from "framer-motion";
+-import { ChevronLeft, ChevronRight, Compass, Hash, Moon as MoonIcon, Palette } from "lucide-react";
++import { ChevronLeft, ChevronRight, Compass, Hash, Moon as MoonIcon, Palette, Star, TriangleAlert } from "lucide-react";
+ import { CelestialBG } from "@/components/common/CelestialBG";
+ import { ScoreBar } from "@/components/modules/astrology/TimelineViews";
+ import { formatThaiDate } from "@/components/modules/lottery/LatestLotteryCard";
+@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
+ import { Button, buttonClasses } from "@/components/ui/Button";
+ import { Card } from "@/components/ui/Card";
+ import { Icon } from "@/components/ui/Icon";
+-import { getDailyPrediction, shiftDateKey, toDateKey } from "@/lib/astrology/transits";
++import { shiftDateKey, toDateKey } from "@/lib/astrology/transits";
+ import type { TransitContent } from "@/lib/astrology/transits";
+ import { DOMAIN_KEYS } from "@/lib/astrology/transit-params";
+ import { ContentGate } from "@/components/common/ContentGate";
+@@ -20,15 +20,60 @@ import { useConsultation } from "@/lib/store/consultationStore";
+ import { getPageSeo } from "@/lib/seo";
+ import { ASTRO_SUB_NAV, SITE_NAME } from "@/lib/navigation";
+ import { ModuleSubNav } from "@/components/common/ModuleSubNav";
++import {
++  getPersonalizedDailyHoroscope,
++  getPersonalizedWeeklyHoroscope,
++  getPersonalizedMonthlyHoroscope,
++  startOfWeekKey,
++} from "@/lib/content/daily-horoscope";
+ import { cn } from "@/lib/utils";
+ 
++type PeriodType = "daily" | "weekly" | "monthly";
+ 
+-type DailyHoroscopeProps = { signName: string; dateKey: string; onChangeDate: (dateKey: string) => void; signs: ZodiacContent["signs"]; content: TransitContent };
++const PERIOD_TABS: Array<{ id: PeriodType; label: string }> = [
++  { id: "daily", label: "รายวัน" },
++  { id: "weekly", label: "รายสัปดาห์" },
++  { id: "monthly", label: "รายเดือน" },
++];
++
++function shiftMonth(monthKey: string, delta: number) {
++  const [y, m] = monthKey.split("-").map(Number);
++  const d = new Date(Date.UTC(y!, m! - 1 + delta, 1));
++  const year = d.getUTCFullYear();
++  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
++  return `${year}-${month}`;
++}
++
++type DailyHoroscopeProps = {
++  signName: string;
++  ascendantSign?: string;
++  dateKey: string;
++  onChangeDate: (dateKey: string) => void;
++  signs: ZodiacContent["signs"];
++  content: TransitContent;
++};
++
++export function DailyHoroscope({
++  signName,
++  ascendantSign,
++  dateKey,
++  onChangeDate,
++  signs,
++  content,
++}: DailyHoroscopeProps) {
++  const p = useMemo(
++    () =>
++      getPersonalizedDailyHoroscope(
++        { sunSign: signName, ascendantSign },
++        dateKey,
++        signs,
++        content,
++      ),
++    [signName, ascendantSign, dateKey, signs, content],
++  );
+ 
+-function DailyHoroscope({ signName, dateKey, onChangeDate, signs, content }: DailyHoroscopeProps) {
+-  // นับราศีที่เลือกเป็นภพที่ 1 เพื่อดูดวงรายวันของชาวราศีนั้น
+-  const p = useMemo(() => getDailyPrediction(signName, dateKey, signs, content), [signName, dateKey, signs, content]);
+   if (!p) return null;
++
+   return (
+     <Card className="p-6 md:p-8">
+       <div className="flex items-center justify-between gap-3">
+@@ -42,52 +87,248 @@ function DailyHoroscope({ signName, dateKey, onChangeDate, signs, content }: Dai
+           <ChevronRight className="h-4 w-4" aria-hidden />
+         </Button>
+       </div>
+-      <p className="mt-4 text-center">
++
++      <div className="mt-4 text-center">
+         <span className="text-sm text-slate-400">คะแนนภาพรวม </span>
+         <span className="text-4xl font-bold text-celestial-gold">{p.overall}</span>
+-      </p>
++      </div>
++
+       <div className="mt-5 grid gap-4 sm:grid-cols-2">
+         {DOMAIN_KEYS.map((d) => (
+           <ScoreBar key={d} domain={d} label={content.domainHouses[d].label} score={p.scores[d]} />
+         ))}
+       </div>
+-      <p className="mt-5 text-slate-200">{p.summary}</p>
++
++      <p className="mt-5 text-slate-200">{p.prediction}</p>
++
+       <div className="mt-5 grid gap-3 sm:grid-cols-3">
+         <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+-          <p className="flex items-center gap-1.5 text-xs text-slate-400"><Palette className="h-3.5 w-3.5" aria-hidden />สีมงคล</p>
++          <p className="flex items-center gap-1.5 text-xs text-slate-400">
++            <Palette className="h-3.5 w-3.5" aria-hidden />สีมงคล
++          </p>
+           <p className="mt-1 flex items-center gap-2 font-semibold">
+-            <span className="h-4 w-4 rounded-full border border-white/30" style={{ backgroundColor: p.luckyColor.hex }} aria-hidden />
++            <span
++              className="h-4 w-4 rounded-full border border-white/30"
++              style={{ backgroundColor: p.luckyColor.hex }}
++              aria-hidden
++            />
+             {p.luckyColor.name}
+           </p>
+         </div>
+         <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+-          <p className="flex items-center gap-1.5 text-xs text-slate-400"><Compass className="h-3.5 w-3.5" aria-hidden />ทิศมงคล</p>
++          <p className="flex items-center gap-1.5 text-xs text-slate-400">
++            <Compass className="h-3.5 w-3.5" aria-hidden />ทิศมงคล
++          </p>
+           <p className="mt-1 font-semibold">{p.direction}</p>
+         </div>
+         <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+-          <p className="flex items-center gap-1.5 text-xs text-slate-400"><Hash className="h-3.5 w-3.5" aria-hidden />เลขเด่นวันนี้</p>
++          <p className="flex items-center gap-1.5 text-xs text-slate-400">
++            <Hash className="h-3.5 w-3.5" aria-hidden />เลขเด่นวันนี้
++          </p>
+           <p className="mt-1 font-semibold">{p.luckyNumbers.join(" · ")}</p>
+         </div>
+       </div>
++
++      <p className="mt-4 text-center text-xs text-slate-500">{p.disclaimer}</p>
++    </Card>
++  );
++}
++
++type WeeklyHoroscopeProps = {
++  signName: string;
++  ascendantSign?: string;
++  weekKey: string;
++  onChangeWeek: (weekKey: string) => void;
++  signs: ZodiacContent["signs"];
++  content: TransitContent;
++};
++
++export function WeeklyHoroscope({
++  signName,
++  ascendantSign,
++  weekKey,
++  onChangeWeek,
++  signs,
++  content,
++}: WeeklyHoroscopeProps) {
++  const p = useMemo(
++    () =>
++      getPersonalizedWeeklyHoroscope(
++        { sunSign: signName, ascendantSign },
++        weekKey,
++        signs,
++        content,
++      ),
++    [signName, ascendantSign, weekKey, signs, content],
++  );
++
++  return (
++    <Card className="p-6 md:p-8">
++      <div className="flex items-center justify-between gap-3">
++        <Button variant="ghost" size="sm" onClick={() => onChangeWeek(shiftDateKey(weekKey, -7))} aria-label="สัปดาห์ก่อนหน้า">
++          <ChevronLeft className="h-4 w-4" aria-hidden />
++        </Button>
++        <h3 className="text-center text-lg font-bold">
++          ดวงประจำสัปดาห์ (เริ่มวันที่ {formatThaiDate(weekKey)})
++        </h3>
++        <Button variant="ghost" size="sm" onClick={() => onChangeWeek(shiftDateKey(weekKey, 7))} aria-label="สัปดาห์ถัดไป">
++          <ChevronRight className="h-4 w-4" aria-hidden />
++        </Button>
++      </div>
++
++      <div className="mt-4 text-center">
++        <span className="text-sm text-slate-400">คะแนนเฉลี่ยสัปดาห์นี้ </span>
++        <span className="text-4xl font-bold text-celestial-gold">{p.overall}</span>
++      </div>
++
++      <div className="mt-5 grid gap-4 sm:grid-cols-2">
++        {DOMAIN_KEYS.map((d) => (
++          <ScoreBar key={d} domain={d} label={content.domainHouses[d].label} score={p.scores[d]} />
++        ))}
++      </div>
++
++      <p className="mt-5 text-slate-200">{p.prediction}</p>
++
++      {p.highlights && (
++        <ul className="mt-4 grid gap-2">
++          {p.highlights.map((h, idx) => (
++            <li key={idx} className="flex items-center gap-2 text-sm text-slate-300">
++              <Star className="h-4 w-4 shrink-0 text-amber-300" aria-hidden />
++              <span>{h}</span>
++            </li>
++          ))}
++        </ul>
++      )}
++
++      <p className="mt-4 text-center text-xs text-slate-500">{p.disclaimer}</p>
++    </Card>
++  );
++}
++
++type MonthlyHoroscopeProps = {
++  signName: string;
++  ascendantSign?: string;
++  monthKey: string;
++  onChangeMonth: (monthKey: string) => void;
++  signs: ZodiacContent["signs"];
++  content: TransitContent;
++};
++
++export function MonthlyHoroscope({
++  signName,
++  ascendantSign,
++  monthKey,
++  onChangeMonth,
++  signs,
++  content,
++}: MonthlyHoroscopeProps) {
++  const p = useMemo(
++    () =>
++      getPersonalizedMonthlyHoroscope(
++        { sunSign: signName, ascendantSign },
++        `${monthKey}-01`,
++        signs,
++        content,
++      ),
++    [signName, ascendantSign, monthKey, signs, content],
++  );
++
++  const [y, m] = monthKey.split("-").map(Number);
++  const thaiMonthName = content.thaiMonths[m! - 1] ?? `เดือนที่ ${m}`;
++
++  return (
++    <Card className="p-6 md:p-8">
++      <div className="flex items-center justify-between gap-3">
++        <Button variant="ghost" size="sm" onClick={() => onChangeMonth(shiftMonth(monthKey, -1))} aria-label="เดือนก่อนหน้า">
++          <ChevronLeft className="h-4 w-4" aria-hidden />
++        </Button>
++        <h3 className="text-center text-lg font-bold">
++          ดวงประจำเดือน {thaiMonthName} {y! + 543}
++        </h3>
++        <Button variant="ghost" size="sm" onClick={() => onChangeMonth(shiftMonth(monthKey, 1))} aria-label="เดือนถัดไป">
++          <ChevronRight className="h-4 w-4" aria-hidden />
++        </Button>
++      </div>
++
++      <div className="mt-4 text-center">
++        <span className="text-sm text-slate-400">คะแนนเฉลี่ยเดือนนี้ </span>
++        <span className="text-4xl font-bold text-celestial-gold">{p.overall}</span>
++      </div>
++
++      <div className="mt-5 grid gap-4 sm:grid-cols-2">
++        {DOMAIN_KEYS.map((d) => (
++          <ScoreBar key={d} domain={d} label={content.domainHouses[d].label} score={p.scores[d]} />
++        ))}
++      </div>
++
++      <p className="mt-5 text-slate-200">{p.prediction}</p>
++
++      <div className="mt-6 grid gap-4 sm:grid-cols-2">
++        <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 p-4">
++          <h4 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
++            <Star className="h-4 w-4" aria-hidden />วันที่ดวงเด่นในเดือน
++          </h4>
++          <div className="mt-2 flex flex-wrap gap-2">
++            {p.bestDays?.map((d) => (
++              <Badge key={d.dateKey} theme="emerald">
++                วันที่ {Number(d.dateKey.slice(8))} · {d.score} คะแนน
++              </Badge>
++            ))}
++          </div>
++        </div>
++
++        <div className="rounded-xl border border-rose-400/20 bg-rose-500/10 p-4">
++          <h4 className="flex items-center gap-1.5 text-sm font-semibold text-rose-300">
++            <TriangleAlert className="h-4 w-4" aria-hidden />วันที่ควรระมัดระวัง
++          </h4>
++          <div className="mt-2 flex flex-wrap gap-2">
++            {p.cautionDays?.map((d) => (
++              <Badge key={d.dateKey} theme="rose">
++                วันที่ {Number(d.dateKey.slice(8))} · {d.score} คะแนน
++              </Badge>
++            ))}
++          </div>
++        </div>
++      </div>
++
++      <p className="mt-4 text-center text-xs text-slate-500">{p.disclaimer}</p>
+     </Card>
+   );
+ }
+ 
+ export default function ZodiacPage() {
+-  return <ContentGate<ZodiacContent> domain="zodiac">{(reference) => <ContentGate<TransitContent> domain="transit">{(content) => <ZodiacReady reference={reference} content={content} />}</ContentGate>}</ContentGate>;
++  return (
++    <ContentGate<ZodiacContent> domain="zodiac">
++      {(reference) => (
++        <ContentGate<TransitContent> domain="transit">
++          {(content) => <ZodiacReady reference={reference} content={content} />}
++        </ContentGate>
++      )}
++    </ContentGate>
++  );
+ }
+ 
+ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content: TransitContent }) {
+   const seo = getPageSeo("/zodiac");
+   const { sunSign, ascendantSign } = useConsultation();
+   const [todayKey, setTodayKey] = useState<string | null>(null);
+-  useEffect(() => { queueMicrotask(() => setTodayKey(toDateKey(new Date()))); }, []);
++
++  useEffect(() => {
++    queueMicrotask(() => setTodayKey(toDateKey(new Date())));
++  }, []);
++
+   const [picked, setPicked] = useState<string | null>(null);
++  const [period, setPeriod] = useState<PeriodType>("daily");
+   const [dateKey, setDateKey] = useState<string | null>(null);
++  const [weekKey, setWeekKey] = useState<string | null>(null);
++  const [monthKey, setMonthKey] = useState<string | null>(null);
+ 
+   const selectedName = picked ?? sunSign ?? reference.signs[0]?.nameTh;
+   const sign = reference.signs.find((s) => s.nameTh === selectedName) ?? reference.signs[0];
+   const activeDate = dateKey ?? todayKey;
++  const activeWeek = weekKey ?? (todayKey ? startOfWeekKey(todayKey) : null);
++  const activeMonth = monthKey ?? (todayKey ? todayKey.slice(0, 7) : null);
++
+   if (!sign) return null;
+   const element = Object.entries(reference.elementStyles).find(([key]) => key === sign.element)?.[1];
+ 
+@@ -105,7 +346,9 @@ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content
+           <h1 className="mt-5 text-3xl font-bold md:text-4xl">
+             12 ราศี <span className="text-gradient-celestial">&amp; ดวงประจำวัน</span>
+           </h1>
+-          <p className="mt-3 text-slate-300">ลักษณะ ธาตุ ดาวครองเรือน ช่วงวันเกิดตามโหราศาสตร์ไทย และดวงประจำวันของแต่ละราศี</p>
++          <p className="mt-3 text-slate-300">
++            ลักษณะ ธาตุ ดาวครองเรือน และดวงพยากรณ์รายวัน รายสัปดาห์ รายเดือน ตามหลักโหราศาสตร์ไทย
++          </p>
+         </motion.div>
+ 
+         <div role="radiogroup" aria-label="เลือกราศี" className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+@@ -121,7 +364,9 @@ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content
+                 onClick={() => setPicked(s.nameTh)}
+                 className={cn(
+                   "relative flex flex-col items-center gap-0.5 rounded-xl border p-3 transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-celestial-violet",
+-                  active ? "border-celestial-gold/60 bg-amber-500/10 shadow-glow-gold" : "border-white/10 bg-white/5 hover:border-celestial-violet/50",
++                  active
++                    ? "border-celestial-gold/60 bg-amber-500/10 shadow-glow-gold"
++                    : "border-white/10 bg-white/5 hover:border-celestial-violet/50",
+                 )}
+               >
+                 <span className="text-2xl" aria-hidden>{s.symbol}</span>
+@@ -136,9 +381,13 @@ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content
+         <motion.div key={sign.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mt-8">
+           <Card className="glow-border-gold p-6 md:p-8">
+             <div className="flex flex-wrap items-center gap-4">
+-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-4xl text-celestial-gold" aria-hidden>{sign.symbol}</span>
++              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-4xl text-celestial-gold" aria-hidden>
++                {sign.symbol}
++              </span>
+               <div>
+-                <h2 className="text-2xl font-bold">ราศี{sign.nameTh} <span className="text-base font-normal text-slate-400">{sign.nameEn}</span></h2>
++                <h2 className="text-2xl font-bold">
++                  ราศี{sign.nameTh} <span className="text-base font-normal text-slate-400">{sign.nameEn}</span>
++                </h2>
+                 <p className="text-sm text-slate-400">ช่วงวันเกิด {sign.dateRangeTh}</p>
+               </div>
+             </div>
+@@ -151,17 +400,77 @@ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content
+               )}
+               <Badge theme="purple">{sign.rulingPlanet}</Badge>
+               {sign.nameTh === ascendantSign && <Badge theme="gold">ลัคนาของคุณ</Badge>}
++              {ascendantSign && sign.nameTh !== ascendantSign && (
++                <Badge theme="violet">คำนวณร่วมกับลัคนา{ascendantSign}</Badge>
++              )}
+             </div>
+             <p className="mt-4 text-slate-200">{sign.traits}</p>
+           </Card>
+         </motion.div>
+ 
++        {/* แท็บสลับช่วงเวลาพยากรณ์ รายวัน / รายสัปดาห์ / รายเดือน */}
+         <div className="mt-8">
+-          {activeDate ? (
+-            <DailyHoroscope content={content} signs={reference.signs} signName={sign.nameTh} dateKey={activeDate} onChangeDate={setDateKey} />
+-          ) : (
+-            <p className="text-center text-slate-400">กำลังโหลดดวงประจำวัน...</p>
+-          )}
++          <div role="tablist" aria-label="ช่วงเวลาพยากรณ์" className="grid grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-white/5 p-1">
++            {PERIOD_TABS.map((t) => {
++              const active = period === t.id;
++              return (
++                <button
++                  key={t.id}
++                  type="button"
++                  role="tab"
++                  id={`tab-${t.id}`}
++                  aria-selected={active}
++                  aria-controls={`panel-${t.id}`}
++                  onClick={() => setPeriod(t.id)}
++                  className="relative rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-celestial-violet"
++                >
++                  {active && (
++                    <motion.span
++                      layoutId="zodiac-period-pill"
++                      className="absolute inset-0 rounded-xl bg-linear-to-r from-celestial-indigo via-celestial-violet to-fuchsia-500 shadow-glow-violet"
++                    />
++                  )}
++                  <span className={cn("relative", active ? "text-white" : "text-slate-300")}>
++                    {t.label}
++                  </span>
++                </button>
++              );
++            })}
++          </div>
++
++          <div id={`panel-${period}`} role="tabpanel" aria-labelledby={`tab-${period}`} className="mt-6">
++            {period === "daily" && activeDate && (
++              <DailyHoroscope
++                content={content}
++                signs={reference.signs}
++                signName={sign.nameTh}
++                ascendantSign={ascendantSign}
++                dateKey={activeDate}
++                onChangeDate={setDateKey}
++              />
++            )}
++            {period === "weekly" && activeWeek && (
++              <WeeklyHoroscope
++                content={content}
++                signs={reference.signs}
++                signName={sign.nameTh}
++                ascendantSign={ascendantSign}
++                weekKey={activeWeek}
++                onChangeWeek={setWeekKey}
++              />
++            )}
++            {period === "monthly" && activeMonth && (
++              <MonthlyHoroscope
++                content={content}
++                signs={reference.signs}
++                signName={sign.nameTh}
++                ascendantSign={ascendantSign}
++                monthKey={activeMonth}
++                onChangeMonth={setMonthKey}
++              />
++            )}
++            {!activeDate && <p className="text-center text-slate-400">กำลังโหลดคำพยากรณ์...</p>}
++          </div>
+         </div>
+ 
+         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+@@ -171,7 +480,7 @@ function ZodiacReady({ reference, content }: { reference: ZodiacContent; content
+         </div>
+ 
+         <p className="mt-10 rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
+-          ดวงประจำวันของแต่ละราศีคำนวณจากตำแหน่งดาวจรโดยประมาณ (คลาดเคลื่อนได้ราว 1 องศา) โดยนับราศีที่เลือกเป็นภพที่ 1 ด้วยสูตรย่อและข้อความแม่แบบของแอป ไม่ใช่ตำราดั้งเดิม เพื่อความบันเทิงและเป็นแนวทางเท่านั้น
++          ดวงชะตาพยากรณ์ของแต่ละราศีคำนวณจากตำแหน่งดาวจรโดยประมาณ (คลาดเคลื่อนได้ราว 1 องศา) โดยนำราศีเกิดและลัคนาจากโปรไฟล์มาปรับแต่งตามสูตรย่อของแอป เพื่อความบันเทิงและเป็นแนวทางเท่านั้น
+         </p>
+       </div>
+     </div>
+diff --git a/src/lib/astrology/transits.ts b/src/lib/astrology/transits.ts
+index 1d68cda..6720a42 100644
+--- a/src/lib/astrology/transits.ts
++++ b/src/lib/astrology/transits.ts
+@@ -574,3 +574,11 @@ export function getYearlyPrediction(
+     cautionWindow: bestWindow(days, (avg, worst) => avg < worst),
+   };
+ }
++
++
++export {
++  getPersonalizedDailyHoroscope,
++  getPersonalizedWeeklyHoroscope,
++  getPersonalizedMonthlyHoroscope,
++  getDailyHoroscope,
++} from "../content/daily-horoscope";

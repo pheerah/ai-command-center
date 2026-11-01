@@ -3,16 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Dev Command Center</title>
-  <link rel="stylesheet" href="/dashboard.css">
-  <script defer src="/dashboard.js"></script>
+  <title>AI Dev Command Center — Virtual Office</title>
+  <link rel="stylesheet" href="/dashboard.css?v=2d_v3">
+  <script defer src="/dashboard.js?v=2d_v3"></script>
+  <script defer src="/office_game.js?v=2d_v13"></script>
 </head>
 <body>
 <main>
-  <header>
-    <div><div class="eyebrow"><span class="signal"></span> LOCAL WORKSPACE · SQLITE</div><h1>AI Dev Command Center</h1><p>ติดตามงานของทุกโปรเจกต์ และดูการใช้งาน AI แยกกันคนละแท็บ</p></div>
-    <div class="header-actions"><button id="refresh" type="button">อัปเดตสถานะ</button></div>
+  <header class="main-header">
+    <div class="brand-zone">
+      <div class="eyebrow"><span class="signal"></span> LOCAL WORKSPACE · SQLITE</div>
+      <h1>🏢 AI Dev Command Center</h1>
+      <p>ศูนย์บัญชาการ AI Office ควบคุม ตรวจสอบ และสั่งงานทุกโปรเจกต์ในเครื่อง</p>
+    </div>
+    
+    <!-- Quick Command Dispatch Bar -->
+    <div class="dispatch-bar">
+      <div class="dispatch-input-group">
+        <select id="dispatch-project" aria-label="เลือกโปรเจกต์">
+          <option value="">เลือกโปรเจกต์...</option>
+        </select>
+        <input id="dispatch-prompt" type="text" placeholder="💬 สั่งงาน AI Center (เช่น: แก้บั๊กหน้า checklist, เพิ่ม unit test)..." />
+        <button id="dispatch-btn" type="button">🚀 ส่งงาน</button>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="refresh" type="button">🔄 อัปเดต</button>
+    </div>
   </header>
+
   <div id="health" role="status" aria-live="polite">กำลังเชื่อมต่อ Center…</div>
   <div id="scheduler-info" class="service-panel" aria-label="ตัวประมวลผลคิว">
     <div><span class="muted">ตัวประมวลผลคิว</span><strong id="scheduler-state">กำลังตรวจสถานะ…</strong></div>
@@ -20,10 +40,16 @@
     <p id="scheduler-note" class="muted"></p>
   </div>
 
-  <nav class="tabs" role="tablist" aria-label="หน้าจอ">
-    <button id="tab-monitor" class="tab" role="tab" type="button" aria-controls="panel-monitor" aria-selected="true">Monitor งาน</button>
-    <button id="tab-usage" class="tab" role="tab" type="button" aria-controls="panel-usage" aria-selected="false">Usage Meter</button>
-  </nav>
+  <div class="view-switcher-bar">
+    <nav class="tabs" role="tablist" aria-label="หน้าจอ">
+      <button id="tab-monitor" class="tab" role="tab" type="button" aria-controls="panel-monitor" aria-selected="true">Monitor งาน</button>
+      <button id="tab-usage" class="tab" role="tab" type="button" aria-controls="panel-usage" aria-selected="false">Usage Meter</button>
+    </nav>
+    <div class="view-mode-buttons" id="view-mode-buttons">
+      <button id="btn-view-office" class="view-btn active" type="button">🏢 Virtual Office</button>
+      <button id="btn-view-board" class="view-btn" type="button">📋 Kanban Board</button>
+    </div>
+  </div>
 
   <div id="panel-monitor" role="tabpanel" aria-labelledby="tab-monitor">
     <section class="overview" aria-label="สถานะระบบ">
@@ -34,7 +60,120 @@
     </section>
     <div id="status-chips" class="status-chips" aria-label="จำนวนงานตามสถานะ"></div>
 
-    <section id="board" aria-labelledby="board-title">
+    <!-- Virtual Office Section (Pixel Art Game Dashboard - Inspired by Image 1 & 2) -->
+    <section id="virtual-office-section" class="virtual-office-wrap">
+      <div class="pixel-office-workspace">
+        
+        <!-- Left Column: The Interactive Pixel Office Floor -->
+        <div class="pixel-office-main">
+          <!-- Top Bar -->
+          <div class="pixel-top-bar">
+            <div class="pixel-brand">
+              <span class="pixel-crown">👑</span>
+              <strong class="pixel-logo">AI AGENT VIRTUAL OFFICE</strong>
+              <span class="pixel-quota-chip">⚡ LIVE WORKFLOW · 60FPS</span>
+            </div>
+            <div class="pixel-top-actions">
+              <button id="btn-fullscreen" class="btn-fullscreen" type="button" title="ขยายเต็มจอ (F)">⛶ ขยายเต็มจอ</button>
+              <button id="btn-game-sound" class="btn-sound active" type="button">🔊 เสียงเปิด</button>
+            </div>
+          </div>
+
+          <!-- Canvas Stage -->
+          <div id="office-game-container" class="pixel-canvas-container">
+            <canvas id="office-game-canvas"></canvas>
+          </div>
+
+          <!-- Bottom Status Bar (Energy / Quota & Working Agents) -->
+          <div class="pixel-bottom-bar">
+            <div class="energy-meter-wrap">
+              <span class="energy-label">⚡ SYSTEM ENERGY & TOKENS:</span>
+              <div class="energy-track">
+                <div class="energy-fill" style="width: 95%;"></div>
+              </div>
+              <span class="energy-val">95% USABLE</span>
+            </div>
+            <div class="working-agents-counter">
+              <span id="game-working-counter">👩‍💻 กำลังทำงาน: 1 / 3 ตัว</span>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Agent Detail Modal (opens on character click) -->
+        <div id="agent-modal-overlay" class="agent-modal-overlay" hidden>
+  <!-- Secretary / Agent Inspector Modal (Side-by-side Large View) -->
+  <aside id="agent-modal-drawer" class="agent-modal-card" role="dialog" aria-modal="true" aria-labelledby="agent-modal-title">
+    <div class="drawer-bar">
+      <h2 id="agent-modal-title">ข้อมูลเลขาฯ & รายละเอียดงาน</h2>
+      <button id="agent-modal-close" type="button">ปิด (Esc)</button>
+    </div>
+    <div class="agent-modal-content">
+      <!-- Left Column: Big Sexy Portrait & Live Stream Status -->
+      <div class="modal-left-portrait-col">
+        <div class="modal-big-photo-frame">
+          <img id="modal-agent-photo" src="/assets/sec_white_blouse.png" alt="Agent Big Portrait" />
+          <div class="modal-live-cam-tag">
+            <span class="cam-dot"></span> LIVE 30FPS
+            <div class="audio-waves">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-agent-quick-info">
+          <span class="sidebar-agent-badge" id="modal-agent-badge">👑 PM_AGENT</span>
+          <span class="sidebar-project-chip" id="modal-project-chip">📁 spc-new-erp</span>
+          <h3 id="modal-agent-name" class="modal-agent-name">เลขาฯ หลินหลิน (Linlin)</h3>
+          <p id="modal-agent-role" class="modal-agent-role">Chief Secretary - spc-new-erp</p>
+          <div id="modal-agent-status-pill" class="modal-status-pill online">🟢 ออนไลน์พร้อมรับใช้</div>
+        </div>
+      </div>
+
+      <!-- Right Column: Speech, Project Tasks, Actions & Direct Command -->
+      <div class="modal-right-details-col">
+        <!-- Dialogue Quote -->
+        <div class="modal-quote-box">
+          <div class="quote-icon">💬</div>
+          <p id="modal-quote-text">"ยินดีต้อนรับค่ะท่าน Director~ วันนี้โปรเจกต์ spc-new-erp ให้หลินหลินช่วยดูแลเรื่องไหนดีคะ? 💕"</p>
+        </div>
+
+        <!-- Project & Tasks Overview Card -->
+        <div class="modal-section-card">
+          <h4>📊 สถานะโปรเจกต์และงานในความดูแล</h4>
+          <p id="modal-task-summary">กำลังโหลดข้อมูลงานล่าสุด...</p>
+          <div class="modal-task-chips-row" id="modal-task-chips-row"></div>
+        </div>
+
+        <!-- Direct Approval Button (If any task ready) -->
+        <div id="modal-approve-zone" style="display: none;">
+          <button id="modal-btn-approve" class="btn-sidebar-approve" type="button">
+            ✓ กดอนุมัติงานนี้นำเข้าโปรเจกต์ทันที 💕
+          </button>
+        </div>
+
+        <!-- Direct Task Command Box -->
+        <div class="modal-command-section">
+          <h4>💬 พิมพ์สั่งงานโปรเจกต์นี้ผ่านเลขาฯ</h4>
+          <div class="modal-input-group">
+            <input type="text" id="modal-command-input" placeholder="พิมพ์คำสั่ง เช่น แก้บั๊กหน้า report, เพิ่ม unit test..." />
+            <button type="button" id="modal-command-send">🚀 ส่งงานทันที</button>
+          </div>
+        </div>
+
+        <!-- Button to open full terminal logs if task exists -->
+        <button type="button" id="modal-btn-terminal" class="btn-sidebar-secondary" style="width: 100%; margin-top: 10px;">
+          🔍 ดู Terminal Logs สดของงานปัจจุบัน
+        </button>
+      </div>
+    </div>
+  </aside>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Kanban Board Section -->
+    <section id="board" aria-labelledby="board-title" hidden>
       <div class="section-heading"><div><div class="eyebrow">LIVE BOARD</div><h2 id="board-title">ตอนนี้ใครกำลังทำอะไร</h2></div><label class="window-label">โปรเจกต์ <select id="board-project" aria-label="กรองโปรเจกต์"><option value="">ทุกโปรเจกต์</option></select></label></div>
       <div id="running-now" class="running-now" aria-live="polite"></div>
       <div id="board-columns" class="board"></div>
@@ -42,7 +181,7 @@
     </section>
 
     <section id="queue" aria-labelledby="queue-title">
-      <div class="section-heading"><div><div class="eyebrow">ALL TASKS</div><h2 id="queue-title">รายการงานทั้งหมด</h2></div><span class="muted">กด “ดู” เพื่อเปิดรายละเอียดเต็มของงาน · งาน mock ไม่ใช่การอนุมัติจริง</span></div>
+      <div class="section-heading"><div><div class="eyebrow">ALL TASKS</div><h2 id="queue-title">รายการงานทั้งหมด</h2></div><span class="muted">กด “ดู” เพื่อเปิดรายละเอียดเต็มของงาน</span></div>
       <div class="queue-filters"><label>ค้นหางาน <input id="task-search" type="search" placeholder="ชื่อ โปรเจกต์ หรือรหัสงาน"></label><label>สถานะ <select id="task-status" aria-label="กรองสถานะงาน"><option value="">ทุกสถานะ</option><option value="queued">queued</option><option value="running">running</option><option value="waiting_for_independent_review">waiting_for_independent_review</option><option value="ready_for_human_approval">ready_for_human_approval</option><option value="blocked">blocked</option><option value="failed">failed</option><option value="approved">approved</option></select></label><span id="task-count" class="muted"></span></div>
       <div class="table-wrap"><table><thead><tr><th>งาน</th><th>โปรเจกต์</th><th>สถานะ / เหตุผลที่รอ</th><th>ผู้รับงาน</th><th>โหมด</th><th>หลักฐาน</th></tr></thead><tbody id="tasks"></tbody></table></div>
     </section>
@@ -73,8 +212,10 @@
     </div>
     <details id="detail-panel"><summary>ข้อมูลดิบทั้งหมด (JSON)</summary><pre id="detail">เลือก “ดู” ในแถวงานเพื่ออ่านประวัติและหลักฐาน</pre></details>
   </aside>
+
+
   <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
-  <footer>อัปเดตทุก 5 วินาทีโดยไม่เรียก AI · เปลี่ยนงานผ่าน Center CLI · ทุกงานรอ human approval ก่อนเสมอ</footer>
+  <footer>อัปเดตทุก 5 วินาทีโดยไม่เรียก AI · ควบคุมงานผ่าน AI Command Center</footer>
 </main>
 </body>
 </html>
