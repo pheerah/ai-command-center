@@ -322,6 +322,13 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
 }
 
 if (require.main === module) {
-  createServer().listen(PORT, '127.0.0.1', () => console.log(`Center dashboard: http://127.0.0.1:${PORT}`));
+  const server = createServer();
+  server.on('error', (error) => {
+    if (error.code !== 'EADDRINUSE') throw error;
+    console.error(`Port ${PORT} is already in use (an earlier dashboard is probably still running).`);
+    console.error(`Stop it (stop_center.bat) or pick another port: set PORT=${PORT + 1} && npm run dev`);
+    process.exit(1);
+  });
+  server.listen(PORT, '127.0.0.1', () => console.log(`Center dashboard: http://127.0.0.1:${PORT}`));
 }
 module.exports = { createServer };

@@ -4,6 +4,7 @@
 //   npm run dev:ui              dashboard only, scheduler left alone
 // Ctrl+C stops what this script started. A scheduler that was already running is never touched.
 const { spawn, spawnSync } = require('node:child_process');
+const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -55,14 +56,32 @@ if (!fs.existsSync(python)) {
   process.exit(1);
 }
 
-if (withScheduler) {
-  if (schedulerRunning()) {
-    console.log('[dev] scheduler already running; leaving it alone');
-  } else {
-    console.log(`[dev] starting scheduler (${mode})`);
-    startedScheduler = true;
-    run('scheduler', python, ['smart_router.py', 'serve', '--mode', mode]);
-  }
+function portInUse() {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port: Number(port), host: '127.0.0.1' });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
+  });
 }
-console.log(`[dev] dashboard: http://127.0.0.1:${port}`);
-run('dashboard', process.execPath, ['--watch', 'server.js']);
+
+async function main() {
+  // Check first: an old dashboard on this port would otherwise crash the new one after the scheduler was already started.
+  if (await portInUse()) {
+    console.error(`[dev] port ${port} is already in use (an earlier dashboard is probably still running).`);
+    console.error(`[dev] stop it with stop_center.bat, or use another port: set PORT=${Number(port) + 1} && npm run dev`);
+    process.exit(1);
+  }
+  if (withScheduler) {
+    if (schedulerRunning()) {
+      console.log('[dev] scheduler already running; leaving it alone');
+    } else {
+      console.log(`[dev] starting scheduler (${mode})`);
+      startedScheduler = true;
+      run('scheduler', python, ['smart_router.py', 'serve', '--mode', mode]);
+    }
+  }
+  console.log(`[dev] dashboard: http://127.0.0.1:${port}`);
+  run('dashboard', process.execPath, ['--watch', 'server.js']);
+}
+
+main();
