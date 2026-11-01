@@ -116,9 +116,9 @@ class Store:
             if 'center_meta' in names:
                 version = con.execute("SELECT value FROM center_meta WHERE key='schema_version'").fetchone()
                 current = int(version[0]) if version else 0
-            if current > 3:
+            if current > 4:
                 raise ValueError('Database schema is newer than this Center; use the matching application version')
-            if current == 3:
+            if current == 4:
                 return  # Status/heartbeat calls must not acquire a migration write lock.
             legacy = "tasks" in names and current == 0
             required = {
@@ -159,6 +159,7 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS authorship(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL REFERENCES tasks(id),session_id TEXT NOT NULL,provider TEXT NOT NULL,attempt INTEGER NOT NULL,created_at TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS evidence(id INTEGER PRIMARY KEY AUTOINCREMENT,task_id TEXT NOT NULL REFERENCES tasks(id),kind TEXT NOT NULL,base_rev TEXT NOT NULL,patch_hash TEXT NOT NULL,provider TEXT,session_id TEXT,simulated INTEGER NOT NULL DEFAULT 0,payload TEXT NOT NULL,created_at TEXT NOT NULL)",
                 "CREATE TABLE IF NOT EXISTS provider_health(provider TEXT PRIMARY KEY,availability TEXT NOT NULL,reason TEXT NOT NULL,cooldown_until REAL NOT NULL DEFAULT 0,updated_at TEXT NOT NULL)",
+                "CREATE TABLE IF NOT EXISTS chat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,project_id TEXT NOT NULL REFERENCES projects(id),turn_id TEXT NOT NULL,role TEXT NOT NULL,kind TEXT NOT NULL,body TEXT NOT NULL,provider TEXT,task_id TEXT,created_at TEXT NOT NULL,UNIQUE(project_id,turn_id,role))",
                 "CREATE INDEX IF NOT EXISTS events_task ON events(task_id,id)",
                 "CREATE INDEX IF NOT EXISTS sessions_provider ON sessions(provider,role)",
             ]
@@ -180,7 +181,7 @@ class Store:
                 for row in con.execute("SELECT id FROM tasks WHERE status NOT IN ('cancelled','approved')").fetchall():
                     con.execute("UPDATE tasks SET status='blocked',error='legacy_task_requires_reconciliation',updated_at=? WHERE id=?", (now(), row[0]))
                     event(con, row[0], "migration_blocked", {"reason": "legacy_task_requires_reconciliation"})
-            con.execute("INSERT INTO center_meta VALUES('schema_version','3') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+            con.execute("INSERT INTO center_meta VALUES('schema_version','4') ON CONFLICT(key) DO UPDATE SET value=excluded.value")
 
     def task(self, task_id):
         with self.connection() as con:
