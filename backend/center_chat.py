@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 
+import center_quota
 from center_workspace import EXCLUDED, in_scope, safe_relative, sensitive
 
 DEFAULTS = {'providers': ['codex', 'claude'], 'timeout_seconds': 90, 'history_turns': 10,
@@ -116,3 +118,29 @@ def parse_secretary_output(raw, context_scope):
                 'scope': scope, 'accept': _list(value['accept'], 'accept', 1, 20, 500), 'complexity': complexity,
                 'provider': provider, 'related_task_id': related}
     raise ChatOutputError('Unknown answer kind')
+
+
+def chat_provider_order(center):
+    """Chat providers worth trying now, most quota left first (unknown quota last).
+
+    Same rules as task routing (availability, cooldown, subscription only, quota floor, effectively exhausted), but a chat
+    turn is not a task, so provider roles and capacity do not apply.
+    """
+    health = center.provider_status()
+    quota = center.quota_reader() or {}
+    floors = center.quota_floors()
+    options = []
+    for name in chat_settings(center)['providers']:
+        state = health.get(name)
+        if not state or state.get('availability') == 'unavailable' or state.get('cooldown_until', 0) > time.time():
+            continue
+        if state.get('entitlement') != 'subscription':
+            continue
+        reading = quota.get(name)
+        if not center_quota.floor_check(reading, floors)[0]:
+            continue
+        left = center_quota.remaining(reading, best_group=True)
+        if left is not None and left < 5:
+            continue
+        options.append((left is None, -(left or 0.0), name))
+    return [name for _, _, name in sorted(options)]
