@@ -1,4 +1,5 @@
 """What the secretary may see: only scoped, non-sensitive project files, always as delimited data. No model is called."""
+import os
 import subprocess
 import sys as _sys
 import tempfile
@@ -68,6 +69,28 @@ class ContextTests(unittest.TestCase):
         context = self.build('Look at src/gone.py, src/big.py and src/util.py', context_bytes=1000)
         self.assertEqual(context['files'], ['src/util.py'])
         self.assertEqual(sorted(context['skipped']), ['src/big.py', 'src/gone.py'])
+
+    def test_words_that_only_look_like_files_are_not_listed_as_unavailable(self):
+        context = self.build('Is docs.python.org down? Look at src/util.py')
+        self.assertEqual(context['files'], ['src/util.py'])
+        self.assertEqual(context['skipped'], [])
+        self.assertNotIn('not available to you', context['prompt'])  # no "unavailable files" block at all
+
+    def test_a_linked_folder_inside_the_scope_cannot_lead_to_files_outside_it(self):
+        link = self.repo / 'src' / 'linked_docs'
+        try:
+            try:
+                os.symlink(self.repo / 'docs', link, target_is_directory=True)
+            except OSError:
+                if os.name != 'nt':
+                    raise
+                subprocess.run(['cmd', '/c', 'mklink', '/J', str(link), str(self.repo / 'docs')], check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest('cannot create a directory link on this machine')
+        context = self.build('Read src/linked_docs/notes.md')
+        self.assertEqual(context['files'], [])
+        self.assertIn('src/linked_docs/notes.md', context['skipped'])
+        self.assertNotIn('OUTSIDE_SCOPE_BODY', context['prompt'])
 
     def test_prompt_lists_active_tasks_with_id_title_status_only(self):
         task = self.center.submit('alpha', 'Visible title', 'SECRET_TASK_PROMPT', ['src'], ['ok'], 'auto', 'mock')

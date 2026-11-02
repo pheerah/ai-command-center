@@ -148,6 +148,32 @@ def parse_secretary_output(raw, context_scope):
     raise ChatOutputError('Unknown answer kind')
 
 
+CHAT_COOLDOWN_SECONDS = 120  # a provider that just failed is skipped for a while; kept apart from task routing on purpose
+COOLDOWN_PREFIX = 'chat_cooldown:'
+
+
+def _cooling_down(center):
+    with center.store.connection() as con:
+        rows = con.execute('SELECT key,value FROM center_meta WHERE key GLOB ?', (COOLDOWN_PREFIX + '*',)).fetchall()
+    cooling = set()
+    for key, value in rows:
+        try:
+            if float(value) > time.time():
+                cooling.add(key[len(COOLDOWN_PREFIX):])
+        except ValueError:
+            continue
+    return cooling
+
+
+def _start_cooldown(center, provider):
+    try:
+        with center.store.connection(write=True) as con:
+            con.execute('INSERT INTO center_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                        (COOLDOWN_PREFIX + provider, str(time.time() + CHAT_COOLDOWN_SECONDS)))
+    except sqlite3.Error:
+        pass  # a missed cooldown only means the next turn tries this provider again
+
+
 def chat_provider_order(center):
     """Chat providers worth trying now, most quota left first (unknown quota last).
 
@@ -158,7 +184,10 @@ def chat_provider_order(center):
     quota = center.quota_reader() or {}
     floors = center.quota_floors()
     options = []
+    cooling = _cooling_down(center)
     for name in chat_settings(center)['providers']:
+        if name in cooling:
+            continue
         state = health.get(name)
         if not state or state.get('availability') == 'unavailable' or state.get('cooldown_until', 0) > time.time():
             continue
@@ -219,10 +248,15 @@ def _render_turn(row):
 def _read_mentioned(root, scope, message, limit):
     files, skipped, used = [], [], 0
     for name in extract_mentioned_files(message, root):
+        if '/' not in name and not (root / name).is_file():
+            continue  # a word such as docs.python.org looks like a file name but names nothing in this project
         try:
             relative = safe_relative(name)
             target = root / relative
             if not _path_allowed(relative, scope) or not target.is_file():
+                raise ValueError('unavailable')
+            real = target.resolve().relative_to(root.resolve()).as_posix()  # a linked folder must not lead out of the allowed scope
+            if not _path_allowed(real, scope):
                 raise ValueError('unavailable')
             if used + target.stat().st_size > limit:
                 raise ValueError('over the context limit')
@@ -387,7 +421,7 @@ ERRORS = {
     'invalid_turn': 'รหัสข้อความไม่ถูกต้อง ลองส่งใหม่อีกครั้ง',
     'invalid_message': 'ข้อความว่างเปล่าหรือยาวเกินที่กำหนด (ไม่เกิน {limit} ตัวอักษร)',
     'unknown_project': 'ไม่พบโปรเจกต์นี้ หรือโฟลเดอร์ของโปรเจกต์หายไป',
-    'no_provider': 'ตอนนี้ยังไม่มี AI ที่พร้อมใช้ (โควตาเหลือน้อย หรือยังไม่ได้เปิดใช้) ลองใหม่ภายหลัง',
+    'no_provider': 'ตอนนี้ยังไม่มี AI ที่พร้อมใช้ (โควตาเหลือน้อย เพิ่งล้มเหลวและกำลังพักอยู่ หรือยังไม่ได้เปิดใช้) ลองใหม่ภายหลัง',
     'unavailable': 'AI ไม่พร้อมตอบในตอนนี้ ลองส่งใหม่อีกครั้ง',
     'timeout': 'AI ใช้เวลานานเกินไป (หมดเวลา) ลองส่งใหม่อีกครั้ง',
     'blocked': 'AI ปฏิเสธที่จะตอบข้อความนี้ ลองเปลี่ยนคำถาม',
@@ -422,7 +456,7 @@ def _wait_for_answer(store, project_id, turn_id, seconds):
     return None
 
 
-def _ask(prompt, scope, providers, deadline, settings, runner):
+def _ask(center, prompt, scope, providers, deadline, settings, runner):
     """Try providers in order inside one shared time budget; one retry per provider for an unusable answer.
 
     Returns (payload, provider) or (reason, None).
@@ -438,6 +472,8 @@ def _ask(prompt, scope, providers, deadline, settings, runner):
                     raw = runner(provider, prompt if attempt == 1 else prompt + RETRY_REMINDER, min(settings['timeout_seconds'], remaining), Path(workdir))
                 except ProviderFailure as failure:
                     reason = failure.reason
+                    if reason in ('unavailable', 'timeout'):
+                        _start_cooldown(center, provider)
                     break  # next provider
             try:
                 return parse_secretary_output(raw, scope), provider
@@ -480,8 +516,10 @@ def run_turn(center, project_id, message, turn_id, runner=None):
         return _error('unknown_project')
     store = center.store
     done = chat_store.find_turn(store, project_id, turn_id, 'secretary')
-    if done:
+    if done and done['kind'] != 'error':
         return done
+    if done:  # an error is not an answer worth replaying: asking again with the same id tries again
+        chat_store.drop_turn(store, project_id, turn_id)
     owned, other = _claim_turn(store, project_id, turn_id, message, settings)
     if not owned:
         return other or _error('busy')
@@ -493,7 +531,7 @@ def run_turn(center, project_id, message, turn_id, runner=None):
             context = build_context(center, project_id, message, history)
             providers = chat_provider_order(center)
             deadline = time.monotonic() + settings['timeout_seconds']
-            payload, provider = _ask(context['prompt'], scope, providers, deadline, settings, runner or RUNNER) if providers else ('no_provider', None)
+            payload, provider = _ask(center, context['prompt'], scope, providers, deadline, settings, runner or RUNNER) if providers else ('no_provider', None)
         except Exception:  # whatever happens, the turn must end with an answer row so a retry is never stuck behind an orphan
             payload, provider = 'unavailable', None
     if provider is None:

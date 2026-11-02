@@ -60,3 +60,9 @@ def drop_unanswered_turn(store, project_id, turn_id, older_than_seconds):
             return False
         con.execute('DELETE FROM chat_messages WHERE id=?', (row['id'],))
         return True
+
+
+def drop_turn(store, project_id, turn_id):
+    """Delete both rows of a turn so the same turn id can be asked again (used only after the turn ended in an error)."""
+    with store.connection(write=True) as con:
+        con.execute('DELETE FROM chat_messages WHERE project_id=? AND turn_id=?', (project_id, turn_id))

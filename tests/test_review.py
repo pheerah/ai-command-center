@@ -193,6 +193,43 @@ class ReviewTests(ReviewFixture, unittest.TestCase):
         self.assertTrue(self.center.review_view(task['id'])['applied'])
         self.assertEqual(fixtures.git(self.a, 'rev-parse', 'HEAD'), head_before)  # applied to the working tree, nothing committed
 
+    def test_apply_refuses_to_overwrite_a_different_file_and_changes_nothing(self):
+        task = self.ready_task()
+        self.center.approve(task['id'], interactive=False)
+        mine = self.a / 'src' / 'center_mock.txt'
+        mine.write_text('my own unsaved work\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Refusing to overwrite src/center_mock.txt'):
+            self.center.apply_approved(task['id'])
+        self.assertEqual(mine.read_text(encoding='utf-8'), 'my own unsaved work\n')
+        view = self.center.review_view(task['id'])
+        self.assertEqual((view['task']['status'], view['applied'], view['actions']['apply']), ('approved', False, True))
+        self.assertNotIn('auto_applied_to_workspace', self.events(task['id']))
+        mine.unlink()
+        self.assertEqual(self.center.apply_approved(task['id'])['status'], 'applied')
+
+    def test_apply_accepts_a_file_that_is_already_identical(self):
+        task = self.ready_task()
+        self.center.approve(task['id'], interactive=False)
+        (self.a / 'src' / 'center_mock.txt').write_text('Center mock implementation\n', encoding='utf-8')
+        self.assertEqual(self.center.apply_approved(task['id'])['status'], 'applied')
+
+    def test_apply_refuses_when_a_folder_is_in_the_way(self):
+        task = self.ready_task()
+        self.center.approve(task['id'], interactive=False)
+        (self.a / 'src' / 'center_mock.txt').mkdir()
+        with self.assertRaisesRegex(ValueError, 'Refusing to overwrite'):
+            self.center.apply_approved(task['id'])
+        self.assertTrue((self.a / 'src' / 'center_mock.txt').is_dir())
+
+    def test_the_web_approval_path_reports_a_refusal_and_leaves_an_approved_task_to_apply_later(self):
+        task = self.ready_task()
+        (self.a / 'src' / 'center_mock.txt').write_text('mine\n', encoding='utf-8')
+        self.center.approve(task['id'], interactive=False)
+        with self.assertRaisesRegex(ValueError, 'Refusing to overwrite'):
+            self.center.auto_apply(task['id'])
+        self.assertEqual(self.center.store.task(task['id'])['status'], 'approved')
+        self.assertEqual((self.a / 'src' / 'center_mock.txt').read_text(encoding='utf-8'), 'mine\n')
+
     def test_only_an_approved_task_can_be_applied(self):
         with self.assertRaises(ValueError):
             self.center.apply_approved(self.ready_task()['id'])

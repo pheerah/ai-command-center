@@ -1131,6 +1131,14 @@ class Center(ReviewMixin, RecoveryMixin, RoutingMixin, ReportMixin):
             raise ValueError("Task must be in ready_for_human_approval or approved state to auto_apply")
         patch_data = self._task_patch(task)
         root = Path(project['root'])
+        worktree = Path(task['worktree'])
+        # Check every new file first: a refusal must leave the project exactly as it was (no half-applied patch).
+        for item in patch_data.get('manifest', []):
+            if item.get('untracked'):
+                destination = root / safe_relative(item['path'])
+                if (not inside(destination, root) or destination.is_symlink() or destination.is_dir()
+                        or (destination.exists() and destination.read_bytes() != (worktree / item['path']).read_bytes())):
+                    raise ValueError(f"Refusing to overwrite {item['path']}: a different file or folder is already there; move it away or apply by hand")
         tracked = patch_data.get('diff', b'')
         if tracked:
             import tempfile
@@ -1145,7 +1153,6 @@ class Center(ReviewMixin, RecoveryMixin, RoutingMixin, ReportMixin):
                     os.unlink(pname)
                 except OSError:
                     pass
-        worktree = Path(task['worktree'])
         for item in patch_data.get('manifest', []):
             if item.get('untracked'):
                 src = worktree / item['path']

@@ -11,7 +11,7 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'backend'))
 import center_chat
 import center_chat_store as chat_store
-from center_chat import ProviderFailure, run_turn
+from center_chat import ProviderFailure, _cooling_down as chat_cooling, run_turn
 from center_runtime import Center
 from test_api_vnext import make_repo
 
@@ -135,6 +135,8 @@ class TurnTests(unittest.TestCase):
 
     def test_all_providers_failing_returns_a_thai_error_with_the_reason(self):
         for reason, word in (('unavailable', 'ไม่พร้อม'), ('timeout', 'หมดเวลา')):
+            with self.center.store.connection(write=True) as con:
+                con.execute("DELETE FROM center_meta WHERE key GLOB 'chat_cooldown:*'")
             row = self.say('hello', FakeRunner(ProviderFailure(reason)))
             self.assertEqual(row['kind'], 'error')
             self.assertIn(word, row['body'])
@@ -215,7 +217,7 @@ class TurnTests(unittest.TestCase):
         self.assertEqual(row['kind'], 'error')
         self.assertNotIn('exploded', row['body'])
         again = self.say('hello', FakeRunner(REPLY), turn_id='turn-boom0001')
-        self.assertEqual(again['id'], row['id'])
+        self.assertEqual(again['kind'], 'reply')
 
     def test_a_stale_user_row_without_an_answer_is_taken_over(self):
         chat_store.add_message(self.center.store, 'alpha', 'turn-stale001', 'user', 'text', 'hello')
@@ -236,6 +238,32 @@ class TurnTests(unittest.TestCase):
         self.assertEqual(row['kind'], 'error')
         self.assertIn('กำลังถูกประมวลผล', row['body'])
         self.assertEqual(runner.calls, [])
+
+    def test_a_provider_that_just_failed_is_skipped_on_the_next_turn(self):
+        def left(percent):
+            return {'five_hour': {'remaining_percent': percent}, 'weekly': {'remaining_percent': percent}}
+        self.center.quota_reader = lambda: {'codex': left(90), 'claude': left(50)}
+        first = FakeRunner(ProviderFailure('unavailable'), REPLY)
+        self.assertEqual(self.say('hello', first)['provider'], 'claude')
+        second = FakeRunner(REPLY)
+        self.assertEqual(self.say('hello again', second)['kind'], 'reply')
+        self.assertEqual([c[0] for c in second.calls], ['claude'])
+
+    def test_an_unusable_answer_does_not_put_a_provider_on_cooldown(self):
+        self.say('hello', FakeRunner('garbage'))
+        runner = FakeRunner(REPLY)
+        self.say('hello again', runner)
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(len(chat_cooling(self.center)), 0)
+
+    def test_a_turn_that_ended_in_an_error_is_asked_again_with_the_same_id(self):
+        failing = FakeRunner('garbage')
+        row = self.say('hello', failing, turn_id='turn-again001')
+        self.assertEqual(row['kind'], 'error')
+        again = self.say('hello', FakeRunner(REPLY), turn_id='turn-again001')
+        self.assertEqual(again['kind'], 'reply')
+        rows = [r for r in chat_store.history(self.center.store, 'alpha') if r['turn_id'] == 'turn-again001']
+        self.assertEqual(sorted(r['role'] for r in rows), ['secretary', 'user'])
 
     def test_mock_adapter_answers_without_a_provider(self):
         self.center.config['chat'] = {'providers': ['codex'], 'adapter': 'mock'}

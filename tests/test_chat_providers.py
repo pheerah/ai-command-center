@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path as _Path
 
 _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / 'backend'))
+import center_chat
 from center_chat import chat_provider_order
 from center_runtime import Center
 
@@ -48,6 +49,19 @@ class ProviderOrderTests(unittest.TestCase):
         self.center.quota_floors = lambda: {'five_hour': 0.0, 'weekly': 0.0}
         self.quota = {'codex': reading(4), 'claude': reading(6), 'google': None}
         self.assertEqual(chat_provider_order(self.center), ['claude', 'google'])
+
+    def test_a_provider_on_cooldown_is_skipped_until_it_expires(self):
+        self.quota = {'codex': reading(90), 'claude': reading(50), 'google': None}
+        center_chat._start_cooldown(self.center, 'codex')
+        self.assertEqual(chat_provider_order(self.center), ['claude', 'google'])
+        with self.center.store.connection(write=True) as con:
+            con.execute("UPDATE center_meta SET value=? WHERE key='chat_cooldown:codex'", (str(time.time() - 1),))
+        self.assertEqual(chat_provider_order(self.center), ['codex', 'claude', 'google'])
+
+    def test_a_damaged_cooldown_value_is_ignored(self):
+        with self.center.store.connection(write=True) as con:
+            con.execute("INSERT INTO center_meta(key,value) VALUES('chat_cooldown:codex','not a number')")
+        self.assertIn('codex', chat_provider_order(self.center))
 
     def test_only_configured_chat_providers_are_considered(self):
         self.center.config['chat'] = {'providers': ['codex', 'claude']}

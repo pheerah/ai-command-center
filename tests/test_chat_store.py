@@ -67,6 +67,16 @@ class ChatStoreTests(unittest.TestCase):
         self.assertEqual(chat_store.find_turn(self.store, 'alpha', 'turn-0001xx', 'user')['body'], 'hello')
         self.assertIsNone(chat_store.find_turn(self.store, 'alpha', 'turn-0001xx', 'secretary'))
 
+    def test_drop_turn_removes_both_rows_so_the_id_can_be_used_again(self):
+        chat_store.add_message(self.store, 'alpha', 'turn-0003xx', 'user', 'text', 'q')
+        chat_store.add_message(self.store, 'alpha', 'turn-0003xx', 'secretary', 'error', 'oops')
+        chat_store.add_message(self.store, 'alpha', 'turn-0004xx', 'user', 'text', 'other')
+        chat_store.drop_turn(self.store, 'alpha', 'turn-0003xx')
+        self.assertIsNone(chat_store.find_turn(self.store, 'alpha', 'turn-0003xx', 'user'))
+        self.assertIsNone(chat_store.find_turn(self.store, 'alpha', 'turn-0003xx', 'secretary'))
+        self.assertIsNotNone(chat_store.find_turn(self.store, 'alpha', 'turn-0004xx', 'user'))
+        chat_store.add_message(self.store, 'alpha', 'turn-0003xx', 'user', 'text', 'again')
+
     def test_mark_confirmed_sets_task_id(self):
         message_id = chat_store.add_message(self.store, 'alpha', 'turn-0002xx', 'secretary', 'draft_task', '{}', 'codex')
         self.assertIsNone(chat_store.message(self.store, 'alpha', message_id)['task_id'])
