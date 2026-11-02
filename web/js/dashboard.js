@@ -512,11 +512,7 @@ const BOARD_COLUMNS = [
   ['done', 'เสร็จ (อนุมัติแล้ว)', ['approved']],
   ['problem', 'ติดปัญหา / ยกเลิก', ['blocked', 'failed', 'cancelled']],
 ];
-const STEP_LABELS = {
-  queued: 'รอคิว', retry_wait: 'รอลองใหม่', assigned: 'รับงานแล้ว กำลังเตรียม', running: 'AI กำลังเขียนโค้ด',
-  implementation_done: 'เขียนเสร็จ รอรัน gates', gates: 'กำลังรัน gates (ไม่ใช้ AI)', waiting_for_independent_review: 'รอผู้ตรวจจากอีกค่าย',
-  review: 'ผู้ตรวจกำลังตรวจ', ready_for_human_approval: 'รอคุณอนุมัติ', approved: 'อนุมัติแล้ว', blocked: 'ติดขัด ต้องดูสาเหตุ', failed: 'ล้มเหลว', cancelled: 'ยกเลิกแล้ว',
-};
+const STEP_LABELS = window.StatusLabels.step;  // shared with the office window (status_labels.js)
 const ROLE_LABELS = { implementation: 'เขียนโค้ด', review: 'ตรวจ' };
 const ADAPTER_LABELS = { live: 'CLI ของค่าย', handoff: 'IDE ทำเอง', gates: 'รัน gates (ไม่ใช้ AI)', mock: 'ทดสอบ (mock)' };
 const BOARD_LIMIT = 8;
