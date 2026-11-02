@@ -271,6 +271,8 @@ def call(center, project_id, op, task_id=None, body=None):
         if claim:
             _settle_request(center, key, claim, task['id'])
         return {'task': public_task(task)}
+    if op in REVIEW_OPS:
+        return _review_op(center, project_id, op, task_id, body)
     if op in ('chat', 'chat_history', 'chat_confirm'):
         return _chat(center, project_id, op, body)
     if op == 'list':
@@ -286,6 +288,41 @@ def call(center, project_id, op, task_id=None, body=None):
     if op == 'patch':
         return export_patch(center, project_id, task_id)
     raise ApiError('Unknown operation')
+
+
+REVIEW_OPS = ('review', 'reject', 'rework', 'diagnose', 'retry', 'switch_provider', 'apply')
+
+
+def _review_op(center, project_id, op, task_id, body):
+    """The owner's decisions and review view (dashboard only: server.js does not route these for project tokens)."""
+    task = _own_task(center, project_id, task_id)
+    try:
+        if op == 'review':
+            view = center.review_view(task['id'])
+            return {**view, 'task': public_task(view['task'], _plans_for(center, task['id'])), 'diagnosis': center.diagnose(task['id'])}
+        if op == 'diagnose':
+            return center.diagnose(task['id'])
+        if op == 'reject':
+            return {'task': public_task(center.reject(task['id'], body.get('reason')))}
+        if op == 'rework':
+            return {'task': public_task(center.rework(task['id'], body.get('instructions')))}
+        if op == 'retry':
+            return {'task': public_task(center.retry_from_web(task['id']))}
+        if op == 'switch_provider':
+            provider = body.get('provider')
+            if not isinstance(provider, str) or provider not in center.config['providers']:
+                raise ApiError('Unknown provider')
+            return {'task': public_task(center.retry_from_web(task['id'], provider))}
+        return {'applied': center.apply_approved(task['id']), 'task': public_task(center.store.task(task['id']))}
+    except ApiError:
+        raise
+    except ValueError as exc:
+        raise ApiError(str(exc)) from None
+
+
+def _plans_for(center, task_id):
+    with center.store.connection() as con:
+        return _plans(con, [task_id]).get(task_id, {})
 
 
 def _public_chat_row(row):

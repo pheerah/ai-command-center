@@ -6,6 +6,7 @@
   <title>AI Dev Command Center — Virtual Office</title>
   <link rel="stylesheet" href="/css/dashboard.css">
   <script defer src="/js/status_labels.js"></script>
+  <script defer src="/js/review.js"></script>
   <script defer src="/js/dashboard.js"></script>
   <script defer src="/js/chat.js"></script>
   <script defer src="/js/office/sound.js"></script>
@@ -156,6 +157,7 @@
 
         <!-- Direct Approval Button (If any task ready) -->
         <div id="modal-approve-zone" hidden>
+          <button id="modal-btn-review" class="btn-sidebar-secondary btn-modal-wide" type="button">🔎 ตรวจผลงาน (ดู diff และผลตรวจ) ก่อนอนุมัติ</button>
           <button id="modal-btn-approve" class="btn-sidebar-approve" type="button">
             ✓ กดอนุมัติงานนี้นำเข้าโปรเจกต์ทันที 💕
           </button>
@@ -220,6 +222,7 @@
         <div id="live-body" aria-live="polite"></div>
       </section>
       <div id="task-static">เลือกงานเพื่อดูรายละเอียด</div>
+      <div id="task-review" aria-label="ตรวจผลงาน"></div>
     </div>
     <details id="detail-panel"><summary>ข้อมูลดิบทั้งหมด (JSON)</summary><pre id="detail">เลือก “ดู” ในแถวงานเพื่ออ่านประวัติและหลักฐาน</pre></details>
   </aside>

@@ -24,10 +24,10 @@ TRANSITIONS = {
     "gates": {"waiting_for_independent_review", "failed", "blocked", "cancelled"},
     "waiting_for_independent_review": {"review", "gates", "ready_for_human_approval", "blocked", "cancelled"},
     "review": {"ready_for_human_approval", "waiting_for_independent_review", "failed", "blocked", "cancelled"},
-    "ready_for_human_approval": {"approved", "waiting_for_independent_review", "cancelled"},
+    "ready_for_human_approval": {"approved", "waiting_for_independent_review", "rejected", "cancelled"},
     "blocked": {"queued", "gates", "waiting_for_independent_review", "cancelled"},
     "failed": {"queued", "gates", "waiting_for_independent_review", "blocked", "cancelled"},
-    "cancelled": set(), "approved": set(),
+    "cancelled": set(), "approved": set(), "rejected": set(),
 }
 
 

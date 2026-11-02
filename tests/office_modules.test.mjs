@@ -10,7 +10,7 @@ const scripts = [...html.matchAll(/<script defer src="\/([^"]+)"><\/script>/g)].
 function loadPage(extraGlobals = {}) {
   const noop = () => {};
   const context = {
-    console, setTimeout: () => 0, clearTimeout: noop, requestAnimationFrame: () => 0, fetch: () => Promise.reject(new Error('offline')),
+    console: { log: noop, warn: noop, error: noop }, setTimeout: () => 0, clearTimeout: noop, requestAnimationFrame: () => 0, fetch: () => Promise.reject(new Error('offline')),
     Image: class { set src(value) { this._src = value; } }, Option: class {},
     document: { readyState: 'complete', getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener: noop, createElement: () => ({ style: {}, getContext: () => null }) },
     localStorage: { getItem: () => null, setItem: noop },

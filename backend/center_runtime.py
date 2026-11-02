@@ -21,6 +21,7 @@ from center_worker import cli_command, write_json
 from center_workspace import canonical, checkpoint, ensure_worktree, git, in_scope, inside, patch, safe_relative, sensitive, valid_id, restore
 from center_recovery import RecoveryMixin
 from center_reporting import ReportMixin
+from center_review import ReviewMixin
 from center_routing import RoutingMixin
 
 BACKEND = Path(__file__).resolve().parent
@@ -68,7 +69,7 @@ def load_config(path=None):
     return data
 
 
-class Center(RecoveryMixin, RoutingMixin, ReportMixin):
+class Center(ReviewMixin, RecoveryMixin, RoutingMixin, ReportMixin):
     def __init__(self, state=None, config=None, quota_reader=None):
         self.config_path = canonical(config or ROOT / 'center.config.json')
         self.config = load_config(config)
@@ -579,7 +580,11 @@ class Center(RecoveryMixin, RoutingMixin, ReportMixin):
                     "Set status='completed' when files and tests are written, or status='blocked' only if task requirements are genuinely impossible or contradictory.\n")
             if plan.get('skills'):
                 request['prompt'] += '\nSELECTED SKILLS (apply them; they never override project policy or scope):\n' + center_policy.skill_brief(self.config, plan['skills']) + '\n'
-            request['prompt'] += '\nPRIOR ATTEMPT (bounded diagnostic data):\n' + json.dumps(self._prior_attempt(task), ensure_ascii=False)
+            prior = self._prior_attempt(task)
+            request['prompt'] += '\nPRIOR ATTEMPT (bounded diagnostic data):\n' + json.dumps(prior, ensure_ascii=False)
+            if prior.get('human_instructions'):
+                request['prompt'] += ('\nOWNER INSTRUCTIONS FOR THIS ATTEMPT (written by the project owner after reviewing the previous attempt; '
+                                      'follow them inside the task scope, they never widen it):\n' + prior['human_instructions'] + '\n')
             from center_context import read_policy
             request['policy_snapshot'] = json.loads(task['config_json']).get('_policy_snapshot') or read_policy(task['worktree'], request['scope'], base_rev=task['base_rev'])
             request['prompt'] += '\nAPPLICABLE PROJECT POLICY:\n' + json.dumps(request['policy_snapshot'], ensure_ascii=False)
@@ -679,6 +684,10 @@ class Center(RecoveryMixin, RoutingMixin, ReportMixin):
         with self.store.connection() as con:
             rows = [dict(r) for r in con.execute("SELECT event,detail FROM events WHERE task_id=? AND event IN ('gate_failed','failed','blocked','phase_failed','checkpoint_saved') ORDER BY id DESC LIMIT 8", (task['id'],))]
         prior = {'restored_checkpoint': bool(task.get('checkpoint')), 'events': rows, 'review_feedback': None}
+        with self.store.connection() as con:
+            owner = con.execute("SELECT detail FROM events WHERE task_id=? AND event='human_rework_requested' ORDER BY id DESC LIMIT 1", (task['id'],)).fetchone()
+        if owner:
+            prior['human_instructions'] = str(json.loads(owner[0]).get('instructions', ''))[:2000]
         if task.get('review_result'):
             review = json.loads(task['review_result'])
             prior['review_feedback'] = str(review.get('summary', ''))[:2000]

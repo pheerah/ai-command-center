@@ -216,8 +216,14 @@ async function approveTask(taskId, btn) {
   }
 }
 
+const REVIEW_STATUSES = new Set(['ready_for_human_approval', 'approved', 'rejected', 'failed', 'blocked']);
+
 function renderTaskView(data) {
   const task = data.task;
+  // The review panel lives beside the static summary so a poll that rebuilds the summary never wipes what the owner is typing.
+  const reviewHolder = el('task-review');
+  if (REVIEW_STATUSES.has(task.status)) window.ReviewPanel.mount(reviewHolder, task, { approve: id => approveTask(id), changed: refresh });
+  else reviewHolder.replaceChildren();
   const config = parseJson(task.config_json) || {};
   const events = (data.events || []).map(row => ({ ...row, info: parseJson(row.detail) || {} }));
   const dispatches = events.filter(e => e.event === 'dispatch_recorded');
@@ -339,6 +345,7 @@ function nowSentence(task, sessions, live, events) {
     case 'ready_for_human_approval': return 'ครบทุกขั้นแล้ว รอคุณอนุมัติใน terminal ของ Center';
     case 'approved': return 'อนุมัติแล้ว งานนี้เสร็จสมบูรณ์';
     case 'cancelled': return 'งานถูกยกเลิก';
+    case 'rejected': return 'คุณปฏิเสธงานนี้แล้ว';
     default: return `${STEP_LABELS[task.status] || task.status}${task.error || lastReason ? ' — สาเหตุ: ' + (waitingLabels[task.error || lastReason] || task.error || lastReason) : ''}`;
   }
 }
@@ -510,7 +517,7 @@ const BOARD_COLUMNS = [
   ['review', 'ตรวจโดยอีกค่าย', ['waiting_for_independent_review', 'review']],
   ['approve', 'รอคุณอนุมัติ', ['ready_for_human_approval']],
   ['done', 'เสร็จ (อนุมัติแล้ว)', ['approved']],
-  ['problem', 'ติดปัญหา / ยกเลิก', ['blocked', 'failed', 'cancelled']],
+  ['problem', 'ติดปัญหา / ยกเลิก / ปฏิเสธ', ['blocked', 'failed', 'cancelled', 'rejected']],
 ];
 const STEP_LABELS = window.StatusLabels.step;  // shared with the office window (status_labels.js)
 const ROLE_LABELS = { implementation: 'เขียนโค้ด', review: 'ตรวจ' };

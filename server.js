@@ -192,6 +192,45 @@ async function handleChat(req, res, url, callApi) {
   return send(answer.status || 500, answer.ok ? answer.data : { error: answer.error || 'Request failed' });
 }
 
+// ---- Owner review: what changed, why it is stuck, and the decisions only the owner takes (dashboard only) -----------------------
+const REVIEW_ROUTES = {
+  '/api/review': ['GET', 'review'], '/api/review/diagnose': ['GET', 'diagnose'], '/api/review/reject': ['POST', 'reject'],
+  '/api/review/rework': ['POST', 'rework'], '/api/review/retry': ['POST', 'retry'], '/api/review/switch': ['POST', 'switch_provider'],
+  '/api/review/apply': ['POST', 'apply'],
+};
+const TASK_ID = /^[a-f0-9]{12}$/;
+const REVIEW_TIMEOUT_MS = 90000;
+const MAX_REVIEW_INFLIGHT = 4;
+let reviewInflight = 0;
+
+async function handleReview(req, res, url, callApi) {
+  const send = (status, body) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
+  const [method, op] = REVIEW_ROUTES[url.pathname];
+  if (req.method !== method) return send(405, { error: 'Method not allowed' });
+  let body = {};
+  if (method === 'POST') {
+    if (!/^application\/json(;|$)/i.test(req.headers['content-type'] || '')) return send(415, { error: 'Content-Type must be application/json' });
+    let raw;
+    try { raw = await readBody(req); } catch { return send(413, { error: 'Body is limited to 64 KB' }); }
+    try { body = JSON.parse(raw || '{}'); } catch { return send(400, { error: 'Body must be valid JSON' }); }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return send(400, { error: 'Body must be an object' });
+  }
+  const source = method === 'POST' ? body : Object.fromEntries(url.searchParams);
+  if (typeof source.project_id !== 'string' || !PROJECT_ID.test(source.project_id)) return send(400, { error: 'project_id is required' });
+  if (typeof source.task_id !== 'string' || !TASK_ID.test(source.task_id)) return send(400, { error: 'task_id is required' });
+  const fields = { reject: ['reason'], rework: ['instructions'], switch_provider: ['provider'] }[op] || [];
+  const forwarded = {};
+  for (const field of fields) {
+    if (typeof body[field] !== 'string') return send(400, { error: `${field} is required` });
+    forwarded[field] = body[field];
+  }
+  if (reviewInflight >= MAX_REVIEW_INFLIGHT) { res.setHeader('Retry-After', '5'); return send(503, { error: 'Center is busy; retry shortly' }); }
+  reviewInflight += 1;
+  let answer;
+  try { answer = await callApi(source.project_id, { op, task_id: source.task_id, body: forwarded }, REVIEW_TIMEOUT_MS); } finally { reviewInflight -= 1; }
+  return send(answer.status || 500, answer.ok ? answer.data : { error: answer.error || 'Request failed' });
+}
+
 // ---- Live view of one task: the tail of the newest run's log files (read-only, owner's dashboard) --------------------------
 // Only *.log files inside runs/<task>/<session>/ are read (never request.json, which holds prompts and sources), the task id
 // and session names must be hex, symlinks are skipped, and obvious secrets are masked. Masking is best effort.
@@ -255,6 +294,11 @@ function createServer({ readSnapshot = snapshot, readLiveQuota = readQuota, read
       return;
     }
     const url = new URL(req.url, `http://${host}`);
+    if (Object.hasOwn(REVIEW_ROUTES, url.pathname)) {
+      try { await handleReview(req, res, url, callApi); }
+      catch { if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Request failed' })); }
+      return;
+    }
     if (Object.hasOwn(CHAT_ROUTES, url.pathname)) {
       try { await handleChat(req, res, url, callApi); }
       catch { if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Request failed' })); }

@@ -3792,3 +3792,173 @@ body.office-mode .view-switcher-bar {
 #chat-form button:disabled {
   opacity: 0.6;
 }
+
+
+/* Review panel */
+#task-review {
+  margin-top: 12px;
+}
+
+.rv-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid #334155;
+  padding-top: 12px;
+}
+
+.rv-head {
+  margin: 0;
+  font-size: 15px;
+}
+
+.rv-section {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.rv-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #38bdf8;
+}
+
+.rv-block {
+  margin-bottom: 8px;
+}
+
+.rv-muted {
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.rv-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.rv-pass {
+  color: #86efac;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.rv-fail {
+  color: #fca5a5;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.rv-files {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rv-diff {
+  max-height: 340px;
+  overflow: auto;
+  margin: 6px 0;
+  padding: 8px;
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rv-line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rv-add {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+}
+
+.rv-del {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+}
+
+.rv-hunk {
+  color: #7dd3fc;
+}
+
+.rv-meta {
+  color: #94a3b8;
+}
+
+.rv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rv-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rv-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rv-approve {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.rv-danger {
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.rv-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rv-form[hidden] {
+  display: none;
+}
+
+.rv-text {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.rv-commit {
+  display: block;
+  padding: 6px 8px;
+  background: #020617;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}

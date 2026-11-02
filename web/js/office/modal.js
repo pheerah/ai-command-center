@@ -135,6 +135,13 @@
     }
 
     if (approveZone) approveZone.hidden = waiting.length === 0;
+    const btnReview = document.getElementById('modal-btn-review');
+    if (btnReview && waiting.length > 0) {
+      btnReview.onclick = () => {
+        closeAgentModal();
+        if (window.details) window.details(currentTaskId);
+      };
+    }
     if (btnApprove && waiting.length > 0) {
       btnApprove.textContent = `✓ กดอนุมัติงาน [${waiting[0].project_id}] ทันที 💕`;
       btnApprove.onclick = () => {
