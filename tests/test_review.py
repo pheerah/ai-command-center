@@ -12,7 +12,8 @@ import center_review
 from center_store import TRANSITIONS
 
 
-class ReviewTests(unittest.TestCase):
+class ReviewFixture:
+    """Shared setup: two registered projects, and helpers that drive a task to the states the owner meets."""
     setUp = fixtures.CenterTests.setUp
     cleanup = fixtures.CenterTests.cleanup
     task = fixtures.CenterTests.task
@@ -41,6 +42,9 @@ class ReviewTests(unittest.TestCase):
     def api(self, op, task_id, body=None, project='project-a'):
         return center_api.run(self.center, project, {'op': op, 'task_id': task_id, 'body': body})
 
+
+
+class ReviewTests(ReviewFixture, unittest.TestCase):
     # ---- the review view
     def test_review_view_shows_changes_gates_review_and_the_actions_open_to_the_owner(self):
         task = self.ready_task()

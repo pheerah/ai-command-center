@@ -14,8 +14,8 @@ Python เป็นเจ้าของ scheduler/atomic claim เพียง�
 # ใช้ .venv เดิมที่ติดตั้งไว้แล้ว หรือเตรียมใหม่ด้วย python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 npm.cmd ci --ignore-scripts
-.\.venv\Scripts\python.exe smart_router.py doctor
-.\.venv\Scripts\python.exe smart_router.py start --mode live
+.\.venv\Scripts\python.exe backend\smart_router.py doctor
+.\.venv\Scripts\python.exe backend\smart_router.py start --mode live
 
 # ทดลองสองโปรเจกต์ผ่าน Maestro จริง + AI adapters จำลอง ไม่มี model calls
 npm.cmd run demo
@@ -35,6 +35,30 @@ $env:AI_CENTER_STATE_DIR = 'C:\...\sandbox\runs\RUN_ID\state'
 npm.cmd start
 ```
 
+## ใช้งานประจำวัน: `npm run dev`
+
+```powershell
+npm.cmd run dev      # เปิดหน้า dashboard (พอร์ต 3939) และ scheduler ในหน้าต่างเดียว ปิดด้วย Ctrl+C
+npm.cmd run dev:ui   # เปิดเฉพาะหน้า dashboard (ไม่เปิด scheduler)
+```
+
+ถ้าพอร์ตถูกใช้อยู่ คำสั่งจะบอกวิธีแก้ก่อนเริ่มอะไรทั้งสิ้น ส่วน scheduler ที่รันอยู่แล้วจะไม่ถูกแตะและไม่ถูกหยุดตอนกด Ctrl+C (หยุดเฉพาะที่คำสั่งนี้เปิดเอง) ค่าเริ่มต้นรันงานจริง (`live`) ใช้ `npm run dev -- --mode mock` เพื่อรันเฉพาะงานจำลอง ทดสอบทั้งชุดด้วย `npm test` (vitest), `npm run test:e2e` (Playwright) และ `npm run test:python` (unittest) ตรวจโค้ดด้วย `npm run lint`
+
+## โครงสร้างโฟลเดอร์
+
+| โฟลเดอร์/ไฟล์ | หน้าที่ |
+|---|---|
+| `backend/` | โค้ด Python ทั้งหมด (`center_*.py`, `smart_router.py`) เก็บแบบ flat เพราะ import กันเอง |
+| `server.js` | เซิร์ฟเวอร์หน้าเว็บ + API ของ dashboard (จุดเดียวที่แมป URL เป็นไฟล์คือ `resolveWebFile()`) |
+| `web/` | หน้าเว็บ: `index.html`, `css/`, `js/` (`dashboard.js`, `review.js`, `chat.js`, `status_labels.js`, `office_game.js` + `js/office/*` โมดูลห้องทำงาน), `assets/` |
+| `scripts/` | สคริปต์ติดตั้ง/ทดสอบ/dev/build และ `attest_google.bat` |
+| `connector-template/` | ไฟล์ที่ติดตั้งเข้าโปรเจกต์ลูก (`connector.py`, hook) |
+| `tests/` | เทสต์ Python (`test_*.py`), vitest (`*.test.mjs`) และ Playwright (`e2e/`) |
+| `docs/` | เอกสารสถานะ/ย้ายระบบ/ตรวจสอบ และ `superpowers/` (spec และแผนงาน) |
+| `smart_router.py` (ราก) | ตัวเรียกเก่าแบบบาง ๆ ให้โปรเจกต์ที่ติดตั้งไว้ก่อนย้ายยังทำงานได้ ลบได้เมื่อติดตั้งโปรเจกต์ใหม่ทุกตัวแล้ว |
+
+คำสั่ง Python ทั้งหมดในเอกสารนี้ใช้ `backend\smart_router.py`
+
 ## ตั้งค่า Center
 
 แก้ `center.config.json`:
@@ -51,11 +75,11 @@ SQLite จะเลือก WAL เมื่อไลบรารีมี fix 
 ## เปิด–ปิด scheduler
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py start --mode live
-.\.venv\Scripts\python.exe smart_router.py service-status
-.\.venv\Scripts\python.exe smart_router.py status
-.\.venv\Scripts\python.exe smart_router.py stop
-.\.venv\Scripts\python.exe smart_router.py recover
+.\.venv\Scripts\python.exe backend\smart_router.py start --mode live
+.\.venv\Scripts\python.exe backend\smart_router.py service-status
+.\.venv\Scripts\python.exe backend\smart_router.py status
+.\.venv\Scripts\python.exe backend\smart_router.py stop
+.\.venv\Scripts\python.exe backend\smart_router.py recover
 ```
 
 `start` เปิด process ที่ซ่อนหน้าต่างบน Windows ไม่มีการติดตั้ง auto-start ระดับระบบ `stop` หยุดรับงานใหม่และรอ phase ปัจจุบันจบ ถ้าต้องการหยุดงานให้ใช้ `cancel TASK_ID` ก่อน เมื่อตัว service หยุดหรือเครื่องรีสตาร์ต ให้ตรวจ `recover` และ `status` ก่อนเปิดใหม่
@@ -63,7 +87,7 @@ SQLite จะเลือก WAL เมื่อไลบรารีมี fix 
 ใช้ `--state-dir PATH` และ `--config PATH` **ก่อนชื่อคำสั่ง** เพื่อแยก test state จากข้อมูลจริง เช่น:
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py --state-dir '.ai-team\local-test' start --mode mock
+.\.venv\Scripts\python.exe backend\smart_router.py --state-dir '.ai-team\local-test' start --mode mock
 ```
 
 ## ลงทะเบียนโปรเจกต์และส่งงาน
@@ -71,11 +95,11 @@ SQLite จะเลือก WAL เมื่อไลบรารีมี fix 
 ใช้ `scripts/install_project.py` (ดูด้านล่าง) แทนการคัดลอกเอง ตัวติดตั้งวาง `connector.py`, `project.config.json` และไฟล์กฎของ IDE ที่เลือกด้วย `--ide claude|antigravity|both` (ค่าเริ่มต้น claude) โปรเจกต์ต้องเป็น Git root ที่แน่นอน ID เปลี่ยนไปชี้ repository อื่นไม่ได้ และไม่อนุญาต registry ที่ path ซ้อนกัน ตรวจ scripts ของ gates ก่อนลงทะเบียน
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py project register --id my-project --path 'C:\path\my-project'
-.\.venv\Scripts\python.exe smart_router.py project show my-project
-.\.venv\Scripts\python.exe smart_router.py submit --project my-project --title 'เพิ่มฟังก์ชัน' --prompt 'รายละเอียดงาน' --scope src --scope tests --accept 'ผ่านชุดทดสอบที่กำหนด' --mode live
-.\.venv\Scripts\python.exe smart_router.py status TASK_ID
-.\.venv\Scripts\python.exe smart_router.py report TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py project register --id my-project --path 'C:\path\my-project'
+.\.venv\Scripts\python.exe backend\smart_router.py project show my-project
+.\.venv\Scripts\python.exe backend\smart_router.py submit --project my-project --title 'เพิ่มฟังก์ชัน' --prompt 'รายละเอียดงาน' --scope src --scope tests --accept 'ผ่านชุดทดสอบที่กำหนด' --mode live
+.\.venv\Scripts\python.exe backend\smart_router.py status TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py report TASK_ID
 ```
 
 ต้องระบุ scope และ acceptance criteria เสมอ ตั้ง `--depends-on TASK_ID` ซ้ำได้ งานขึ้นต่อกันต้องอยู่โปรเจกต์/โหมดเดียวกัน และรอ dependency ได้รับ human approval ก่อนเริ่ม โปรแกรมไม่ auto-register โปรเจกต์ และปฏิเสธการส่งงานจาก checkout ที่มีงานไม่ commit เพื่อไม่ทำงานค้างหายจากบริบท คุณเป็นผู้ตัดสินใจเรื่อง commit เอง Center ไม่ทำให้
@@ -92,6 +116,20 @@ Quality gates ต้องเป็น argument arrays เช่น `["node","--
 - ตั้งค่าใน `center.config.json` บล็อก `chat`: `providers` (ค่าเริ่มต้น `["claude"]`; `codex` และ `google` ปิดไว้จนกว่าจะพิสูจน์ได้ว่าอ่าน/เขียนนอกขอบเขตไม่ได้), `adapter` (`live` หรือ `mock` สำหรับ demo/ทดสอบ), `timeout_seconds` (90 รวมทั้งเทิร์น ไม่ว่าจะลองกี่ provider; สูงสุด 95), `history_turns` (10), `max_message_chars` (4000), `context_bytes` (65536)
 - ประวัติเก็บต่อโปรเจกต์ในตาราง `chat_messages` (50 เทิร์นล่าสุด) schema ฐานข้อมูลเป็น v4: **Center รุ่นเก่าจะอ่าน DB นี้ไม่ได้** และการอัปเกรดครั้งแรกต้องหยุด scheduler ก่อน (ระบบสำรอง DB ให้อัตโนมัติ)
 - กล่อง "สั่งงานทันที" ของหน้า board (`/api/dispatch`) ยังทำงานแบบเดิม (สร้างงานทันที ไม่ผ่านร่าง)
+
+## ตรวจผลงาน ตัดสินใจ และนำไปใช้ (ในหน้า dashboard)
+
+เปิดรายละเอียดงานจากกระดาน (หรือกด "ตรวจผลงาน" ในหน้าต่างเลขาฯ) จะเห็นแผง **ตรวจผลงาน**:
+
+- **การเปลี่ยนแปลง:** รายการไฟล์ (+/− บรรทัด) diff แบ่งสี และไฟล์ใหม่พร้อมตัวอย่าง (แสดงเฉพาะผลงานที่ตรงกับ patch hash ที่ผ่านรีวิว ไม่ตรงจะไม่แสดง; diff ยาวเกิน 200 KB ถูกตัด)
+- **ผลตรวจ:** ผล gates ทีละคำสั่ง และคำตัดสิน/ข้อสรุปของผู้ตรวจจากอีกค่าย
+- **ตัดสินใจ:** อนุมัติ (เหมือนเดิม: อนุมัติแล้วนำ patch ไปใช้ในโปรเจกต์ด้วย `git apply` ไม่ commit) · **ปฏิเสธ** (ต้องกรอกเหตุผล งานจบเป็น `rejected`) · **สั่งแก้ในงานเดิม** (ต้องกรอกคำสั่ง ส่งกลับเข้าคิวโดยแนบคำสั่งของคุณให้ AI รอบถัดไป ไม่ผ่อนกฎจำนวนครั้งสูงสุด)
+- **งานติดขัด:** บอกสาเหตุเป็นภาษาไทยและมีปุ่ม "ลองใหม่" / "ให้ค่ายอื่นรับ" เฉพาะที่ทำได้จริง (ต้องไม่มี worker ค้างและยังไม่เกินจำนวนครั้ง)
+- **นำไปใช้ (apply):** ถ้าอนุมัติแล้วแต่ apply ล้ม (เช่นโปรเจกต์เปลี่ยนหลังตรวจ) งานจะค้างเป็น "อนุมัติแล้ว ยังไม่ได้นำไปใช้" และมีปุ่ม apply ให้กดซ้ำ แสดง **ข้อความ commit ที่แนะนำ** ให้คัดลอก **Center ไม่ commit/push ให้ในทุกกรณี** (`test_no_git_actions` บังคับ)
+
+การทำงานเหล่านี้เรียกผ่าน `/api/review/*` ของ dashboard เท่านั้น (ตรวจ Origin/Host เดิม) token ของโปรเจกต์ใน `/api/v1` เข้าไม่ถึง
+
+เลขาฯ ตอบคำถามเรื่องระบบได้ด้วย (scheduler ทำงานไหม provider/โควตา งานไหนค้างเพราะอะไร) จากบล็อก "system health" ที่ Center ใส่ให้ใน prompt (ไม่มี path/ความลับ) เลขาฯ อ่านอย่างเดียว แก้ค่าตั้งค่าหรือแก้ Center ไม่ได้
 
 ## API สำหรับโปรเจกต์อื่น (/api/v1)
 
@@ -249,12 +287,12 @@ Lifecycle หลัก: `queued → assigned → running → implementation_done
 มี `retry_wait`, `blocked`, `failed`, `cancelled` พร้อม validated transitions การจองงานอยู่ใน `BEGIN IMMEDIATE` ทำให้ข้ามหลาย process ได้ ไม่มีการปล่อย slot เพียงเพราะ lease หมดหาก process เก่ายังอาจทำงานอยู่
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py cancel TASK_ID
-.\.venv\Scripts\python.exe smart_router.py checkpoint TASK_ID
-.\.venv\Scripts\python.exe smart_router.py recover
-.\.venv\Scripts\python.exe smart_router.py retry TASK_ID --worker-stopped --reason 'หยุด worker เดิมและตรวจ checkpoint แล้ว' --provider claude
-.\.venv\Scripts\python.exe smart_router.py check-gates TASK_ID --reason 'แก้สภาพแวดล้อมทดสอบแล้ว ตรวจโค้ดเดิมซ้ำโดยไม่เรียก AI'
-.\.venv\Scripts\python.exe smart_router.py retry-review TASK_ID --reason 'มีบริบท review เพิ่มเติมโดย patch เดิมไม่เปลี่ยน'
+.\.venv\Scripts\python.exe backend\smart_router.py cancel TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py checkpoint TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py recover
+.\.venv\Scripts\python.exe backend\smart_router.py retry TASK_ID --worker-stopped --reason 'หยุด worker เดิมและตรวจ checkpoint แล้ว' --provider claude
+.\.venv\Scripts\python.exe backend\smart_router.py check-gates TASK_ID --reason 'แก้สภาพแวดล้อมทดสอบแล้ว ตรวจโค้ดเดิมซ้ำโดยไม่เรียก AI'
+.\.venv\Scripts\python.exe backend\smart_router.py retry-review TASK_ID --reason 'มีบริบท review เพิ่มเติมโดย patch เดิมไม่เปลี่ยน'
 ```
 
 Retry อัตโนมัติมี bounded attempts, exponential backoff/jitter และ provider cooldown เมื่อ rate limit ส่วน auth/config/invalid-model จะ blocked ไม่ retry วน การ fallback เปลี่ยน provider ต้องมีเหตุผลผ่าน Center และเพิ่ม authorship จริงของทุก attempt ไม่โยนงานกลับ IDE โดยเงียบ ๆ Checkpoint เก็บ tracked binary diff และ untracked files ที่อยู่ใน scope มี base revision และ hash; ไม่อ่าน secrets/dependencies หรือเก็บไฟล์ใหญ่เกินขนาดที่กำหนด งานนอก scope จะ blocked และคง worktree เดิมไว้ให้ตรวจ
@@ -266,7 +304,7 @@ Reviewer ต้องต่าง provider จากผู้เขียน **�
 Human approval ต้องใช้ terminal ที่โต้ตอบได้:
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py approve TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py approve TASK_ID
 ```
 
 ผู้ใช้ต้องพิมพ์ task ID และ prefix ของ patch hash การเรียกผ่าน pipe จะถูกปฏิเสธ ไม่มี commit/push/merge/deploy หลังอนุมัติ
@@ -323,10 +361,10 @@ Template เปิด `async_handoff_gates=true`: IDE ส่ง result แล้
 ### Recovery, review และ policy
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py health --mode live
-.\.venv\Scripts\python.exe smart_router.py resume-review TASK_ID --reason 'แก้ login ผู้ตรวจแล้ว โดย patch เดิมไม่เปลี่ยน'
-.\.venv\Scripts\python.exe smart_router.py human-review TASK_ID --reason 'ผู้ใช้ตรวจ source และ gate logs เองครบแล้ว'
-.\.venv\Scripts\python.exe smart_router.py approve TASK_ID
+.\.venv\Scripts\python.exe backend\smart_router.py health --mode live
+.\.venv\Scripts\python.exe backend\smart_router.py resume-review TASK_ID --reason 'แก้ login ผู้ตรวจแล้ว โดย patch เดิมไม่เปลี่ยน'
+.\.venv\Scripts\python.exe backend\smart_router.py human-review TASK_ID --reason 'ผู้ใช้ตรวจ source และ gate logs เองครบแล้ว'
+.\.venv\Scripts\python.exe backend\smart_router.py approve TASK_ID
 ```
 
 `human-review` และ `approve` เป็นคนละขั้น ต้องให้มนุษย์ตรวจและพิมพ์ task/hash ใน terminal จริง ห้าม agent ทำแทน และ TTY/local CLI ไม่ใช่ขอบเขตความปลอดภัยระดับ OS สำหรับโปรแกรมที่มีสิทธิ์ผู้ใช้เดียวกัน
@@ -338,9 +376,9 @@ Retry ได้รับ bounded failure excerpt/review feedback พร้อม
 ### Backup, maintenance และการลอง Antigravity
 
 ```powershell
-.\.venv\Scripts\python.exe smart_router.py backup --verify
-.\.venv\Scripts\python.exe smart_router.py maintenance
-.\.venv\Scripts\python.exe smart_router.py restore-drill BACKUP_PATH --destination NEW_DIRECTORY
+.\.venv\Scripts\python.exe backend\smart_router.py backup --verify
+.\.venv\Scripts\python.exe backend\smart_router.py maintenance
+.\.venv\Scripts\python.exe backend\smart_router.py restore-drill BACKUP_PATH --destination NEW_DIRECTORY
 .\.venv\Scripts\python.exe scripts/antigravity_acceptance.py prepare
 ```
 
