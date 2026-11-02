@@ -279,3 +279,75 @@ describe('secretary chat routes', () => {
     } finally { await new Promise(resolve => api.close(resolve)); }
   });
 });
+
+describe('owner review routes', () => {
+  const calls = [];
+  const json = { 'Content-Type': 'application/json' };
+  const id = 'abcdef012345';
+  const withServer = async (run, callApi) => {
+    const api = createServer({
+      lookupToken: header => (header === 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa' ? 'alpha' : null),
+      callApi: callApi || (async (project, request, timeoutMs) => { calls.push({ project, request, timeoutMs }); return { ok: true, status: 200, data: { echo: request.op } }; }),
+    });
+    await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
+    try { return await run(`http://127.0.0.1:${api.address().port}`); } finally { await new Promise(resolve => api.close(resolve)); }
+  };
+  const post = (url, path, body, headers = json) => fetch(url + path, { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+
+  it('forwards each decision with only the fields that operation needs', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      expect((await (await fetch(`${url}/api/review?project_id=alpha&task_id=${id}`)).json()).echo).toBe('review');
+      expect((await (await fetch(`${url}/api/review/diagnose?project_id=alpha&task_id=${id}`)).json()).echo).toBe('diagnose');
+      await post(url, '/api/review/reject', { project_id: 'alpha', task_id: id, reason: 'no', extra: 'dropped' });
+      await post(url, '/api/review/rework', { project_id: 'alpha', task_id: id, instructions: 'change it' });
+      await post(url, '/api/review/retry', { project_id: 'alpha', task_id: id });
+      await post(url, '/api/review/switch', { project_id: 'alpha', task_id: id, provider: 'claude' });
+      await post(url, '/api/review/apply', { project_id: 'alpha', task_id: id });
+    });
+    expect(calls.map(c => c.request.op)).toEqual(['review', 'diagnose', 'reject', 'rework', 'retry', 'switch_provider', 'apply']);
+    expect(calls[2]).toMatchObject({ project: 'alpha', request: { task_id: id, body: { reason: 'no' } } });
+    expect(calls[3].request.body).toEqual({ instructions: 'change it' });
+    expect(calls[5].request.body).toEqual({ provider: 'claude' });
+    expect(calls[4].request.body).toEqual({});
+    expect(calls[0].timeoutMs).toBe(90000);
+  });
+
+  it('refuses bad ids, missing fields, wrong methods and non-JSON without calling the Center', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      for (const bad of ['', '../x', 'ABCDEF012345', 'abcdef01234', 'abcdef0123456']) {
+        expect((await fetch(`${url}/api/review?project_id=alpha&task_id=${encodeURIComponent(bad)}`)).status, bad).toBe(400);
+      }
+      expect((await fetch(`${url}/api/review?task_id=${id}`)).status).toBe(400);
+      expect((await post(url, '/api/review/reject', { project_id: 'alpha', task_id: id })).status).toBe(400);
+      expect((await post(url, '/api/review/rework', { project_id: 'alpha', task_id: id, instructions: 5 })).status).toBe(400);
+      expect((await post(url, '/api/review/switch', { project_id: 'alpha', task_id: id })).status).toBe(400);
+      expect((await post(url, '/api/review/reject', '{nope')).status).toBe(400);
+      expect((await post(url, '/api/review/reject', 'x', { 'Content-Type': 'text/plain' })).status).toBe(415);
+      expect((await fetch(`${url}/api/review/reject?project_id=alpha&task_id=${id}`)).status).toBe(405);
+      expect((await post(url, '/api/review', { project_id: 'alpha', task_id: id })).status).toBe(405);
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('is browser-only: foreign origins are refused and project tokens have no route to it', async () => {
+    calls.length = 0;
+    await withServer(async url => {
+      expect((await post(url, '/api/review/apply', { project_id: 'alpha', task_id: id }, { ...json, Origin: 'https://evil.invalid' })).status).toBe(403);
+      const auth = { Authorization: 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa', ...json };
+      for (const route of ['review', 'review/reject', 'review/rework', 'review/apply', 'review/retry']) {
+        expect((await post(url, `/api/v1/${route}`, { task_id: id }, auth)).status, route).toBe(404);
+      }
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('answers a Center refusal with its status and message', async () => {
+    await withServer(async url => {
+      const refused = await post(url, '/api/review/reject', { project_id: 'alpha', task_id: id, reason: 'x' });
+      expect(refused.status).toBe(400);
+      expect((await refused.json()).error).toBe('Only a task waiting for approval can be rejected');
+    }, async () => ({ ok: false, status: 400, error: 'Only a task waiting for approval can be rejected' }));
+  });
+});
