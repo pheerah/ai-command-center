@@ -1,6 +1,8 @@
 """Secretary chat history: one row per message, kept per project and trimmed to the latest turns."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from center_store import now
 
 COLUMNS = 'id,turn_id,role,kind,body,provider,task_id,created_at'
@@ -44,3 +46,17 @@ def trim(store, project_id, keep_turns=50):
             return
         marks = ','.join('?' * len(keep))
         con.execute(f'DELETE FROM chat_messages WHERE project_id=? AND turn_id NOT IN ({marks})', (project_id, *keep))
+
+
+def drop_unanswered_turn(store, project_id, turn_id, older_than_seconds):
+    """Delete a user row that never got a secretary row and is older than `older_than_seconds`. Returns True when one was dropped."""
+    with store.connection(write=True) as con:
+        row = con.execute('SELECT id,created_at FROM chat_messages WHERE project_id=? AND turn_id=? AND role=?', (project_id, turn_id, 'user')).fetchone()
+        answered = con.execute('SELECT 1 FROM chat_messages WHERE project_id=? AND turn_id=? AND role=?', (project_id, turn_id, 'secretary')).fetchone()
+        if not row or answered:
+            return False
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(row['created_at'])).total_seconds()
+        if age <= older_than_seconds:
+            return False
+        con.execute('DELETE FROM chat_messages WHERE id=?', (row['id'],))
+        return True

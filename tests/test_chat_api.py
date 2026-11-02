@@ -148,6 +148,25 @@ class ChatApiTests(unittest.TestCase):
         self.assertIn('Too many active tasks', answer['error'])
         self.assertIsNone(chat_store.message(self.center.store, 'alpha', draft['id'])['task_id'])
 
+    def test_reply_with_a_quoted_absolute_path_stays_valid_json_and_hides_the_path(self):
+        reply = json.dumps({'kind': 'reply', 'text': 'The file "/etc/app.conf" sets it. Also C:/Users/me/x.txt', 'files': []})
+        with patch.object(center_chat, 'RUNNER', lambda *args: reply):
+            row = self.chat('what sets it?')['data']
+        text = json.loads(row['body'])['text']
+        self.assertIn('sets it', text)
+        self.assertNotIn('/etc/app.conf', text)
+        self.assertNotIn('Users/me', text)
+        stored = self.call('alpha', 'chat_history')['data']['messages'][-1]
+        self.assertEqual(json.loads(stored['body'])['text'], text)
+
+    def test_draft_with_a_quoted_path_in_its_prompt_stays_valid_json(self):
+        draft = dict(DRAFT, prompt='Change the value in "/home/app/conf.ini" carefully')
+        with patch.object(center_chat, 'RUNNER', lambda *args: json.dumps(draft)):
+            row = self.chat('please change it')['data']
+        self.assertNotIn('/home/app', json.loads(row['body'])['prompt'])
+        self.assertTrue(self.confirm(row['id'])['ok'])
+
+
     def test_related_task_is_noted_in_the_prompt_not_made_a_dependency(self):
         related = self.chat('please add src/b.py')['data']
         first = self.confirm(related['id'])['data']['task']['id']

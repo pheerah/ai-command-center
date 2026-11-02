@@ -30,6 +30,7 @@ PUBLIC_TASK = ('id', 'project_id', 'title', 'status', 'provider', 'reviewer', 'a
 MAX_ACTIVE_TASKS = 20
 EVENT_DETAIL = ('provider', 'role', 'model', 'effort', 'skills', 'task_kind', 'verdict', 'reason', 'status', 'plan_reasons', 'eligible_candidates')
 MAX_PATCH_BYTES = 5 * 1024 * 1024
+RAW_OPS = ('patch', 'chat', 'chat_history')
 
 
 class ApiError(ValueError):
@@ -287,17 +288,30 @@ def call(center, project_id, op, task_id=None, body=None):
     raise ApiError('Unknown operation')
 
 
+def _public_chat_row(row):
+    """A chat row for the dashboard: paths are hidden inside the decoded text, never in the serialised JSON (that would corrupt it)."""
+    row = dict(row)
+    if row.get('role') == 'secretary' and row.get('kind') in ('reply', 'clarify', 'draft_task'):
+        try:
+            row['body'] = json.dumps(scrub(json.loads(row['body'])), ensure_ascii=False)
+        except ValueError:
+            row['body'] = scrub(row['body'])
+    else:
+        row['body'] = scrub(row['body'])
+    return row
+
+
 def _chat(center, project_id, op, body):
     """Secretary chat operations (dashboard only: server.js does not route them for project tokens)."""
     if not isinstance(body, dict):
         raise ApiError('Body must be an object')
     if op == 'chat_history':
-        return {'messages': chat_store.history(center.store, project_id, 100)}
+        return {'messages': [_public_chat_row(r) for r in chat_store.history(center.store, project_id, 100)]}
     if op == 'chat':
         message, turn = body.get('message'), body.get('client_turn_id')
         if not isinstance(message, str) or not isinstance(turn, str):
             raise ApiError('message and client_turn_id are required strings')
-        return center_chat.run_turn(center, project_id, message, turn)
+        return _public_chat_row(center_chat.run_turn(center, project_id, message, turn))
     message_id = body.get('message_id')
     try:
         submit_body, _ = center_chat.prepare_confirmation(center, project_id, message_id, body.get('edits'))
@@ -365,7 +379,8 @@ def run(center, project_id, request):
     """Entry for the CLI bridge; converts failures into a stable, path-free error shape."""
     try:
         data = call(center, project_id, request.get('op'), request.get('task_id'), request.get('body'))
-        return {'ok': True, 'status': 200, 'data': data if request.get('op') == 'patch' else scrub(data)}
+        # patches are file data; chat rows are scrubbed field by field inside _chat (scrubbing their JSON text would break it)
+        return {'ok': True, 'status': 200, 'data': data if request.get('op') in RAW_OPS else scrub(data)}
     except ApiError as exc:
         return {'ok': False, 'status': 404 if str(exc) == 'Task not found' else 400, 'error': str(exc)}
     except ValueError as exc:

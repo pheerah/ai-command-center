@@ -205,7 +205,7 @@
   },
   "codex_context_guard": true,
   "chat": {
-    "providers": ["codex", "claude"],
+    "providers": ["claude"],
     "adapter": "live"
   }
 }

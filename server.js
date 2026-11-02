@@ -159,7 +159,9 @@ async function handleV1(req, res, url, { lookupToken, callApi }) {
 // ---- Secretary chat (the owner's dashboard only: project tokens have no route to these operations) --------------------------
 const CHAT_ROUTES = { '/api/chat': ['POST', 'chat'], '/api/chat/history': ['GET', 'chat_history'], '/api/chat/confirm': ['POST', 'chat_confirm'] };
 const PROJECT_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;  // same rule as the Center's valid_id
-const CHAT_TIMEOUT_MS = 100000;  // a little over the 90 s provider limit so the Center can answer with its own error
+const CHAT_TIMEOUT_MS = 100000;
+const MAX_CHAT_INFLIGHT = 4;  // chat has its own limit so slow AI turns never use up the capacity of project API calls
+let chatInflight = 0;  // a little over the 90 s provider limit so the Center can answer with its own error
 
 async function handleChat(req, res, url, callApi) {
   const send = (status, body) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
@@ -183,10 +185,10 @@ async function handleChat(req, res, url, callApi) {
     if (!Number.isInteger(body.message_id)) return send(400, { error: 'message_id is required' });
     request = { op, body: body.edits === undefined ? { message_id: body.message_id } : { message_id: body.message_id, edits: body.edits } };
   }
-  if (inflight >= MAX_INFLIGHT) { res.setHeader('Retry-After', '5'); return send(503, { error: 'Center is busy; retry shortly' }); }
-  inflight += 1;
+  if (chatInflight >= MAX_CHAT_INFLIGHT) { res.setHeader('Retry-After', '5'); return send(503, { error: 'Center is busy; retry shortly' }); }
+  chatInflight += 1;
   let answer;
-  try { answer = await callApi(projectId, request, CHAT_TIMEOUT_MS); } finally { inflight -= 1; }
+  try { answer = await callApi(projectId, request, CHAT_TIMEOUT_MS); } finally { chatInflight -= 1; }
   return send(answer.status || 500, answer.ok ? answer.data : { error: answer.error || 'Request failed' });
 }
 

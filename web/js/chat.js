@@ -12,6 +12,7 @@
     confirm: 'ส่งงาน',
     confirmed: 'ส่งงานแล้ว',
     draftHint: 'ร่างงาน (แก้ได้ก่อนกดส่ง ยังไม่ได้สร้างงานจริง)',
+    related: 'งานที่เกี่ยวข้อง',
     labels: { title: 'ชื่องาน', prompt: 'รายละเอียด', scope: 'ขอบเขตไฟล์ (บรรทัดละหนึ่งรายการ)', accept: 'เกณฑ์ที่ต้องผ่าน (บรรทัดละหนึ่งข้อ)', complexity: 'ความยาก (1-5)' },
   };
 
@@ -57,6 +58,10 @@
   function renderDraft(box, row, draft, ctx) {
     const card = el('div', 'chat-draft');
     card.append(el('div', 'chat-draft-hint', TEXT.draftHint));
+    // What the draft will also use when confirmed, even though it is not editable here.
+    const meta = [`provider: ${draft.provider || 'auto'}`];
+    if (draft.related_task_id) meta.push(`${TEXT.related}: ${draft.related_task_id}`);
+    card.append(el('div', 'chat-draft-meta', meta.join(' · ')));
     const title = field(card, 'title', TEXT.labels.title, el('input'));
     title.type = 'text';
     title.value = draft.title || '';

@@ -259,4 +259,23 @@ describe('secretary chat routes', () => {
       expect((await Promise.all(open)).map(r => r.status)).toEqual([200, 200, 200, 200]);
     }, () => new Promise(resolve => release.push(() => resolve({ ok: true, status: 200, data: {} }))));
   });
+  it('keeps chat turns from using up the capacity of project API calls', async () => {
+    const release = [];
+    const api = createServer({
+      lookupToken: header => (header === 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa' ? 'alpha' : null),
+      callApi: (project, request) => (request.op === 'chat'
+        ? new Promise(resolve => release.push(() => resolve({ ok: true, status: 200, data: {} })))
+        : Promise.resolve({ ok: true, status: 200, data: { echo: request.op } })),
+    });
+    await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${api.address().port}`;
+    try {
+      const open = [1, 2, 3, 4].map(n => fetch(url + '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: 'alpha', message: 'hi', client_turn_id: `turn-0000000${n}` }) }));
+      await new Promise(resolve => setTimeout(resolve, 150));
+      const v1 = await fetch(url + '/api/v1/tasks', { headers: { Authorization: 'Bearer cc_alpha_token_aaaaaaaaaaaaaaaa' } });
+      expect(v1.status).toBe(200);
+      release.forEach(fn => fn());
+      await Promise.all(open);
+    } finally { await new Promise(resolve => api.close(resolve)); }
+  });
 });

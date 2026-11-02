@@ -3725,6 +3725,11 @@ body.office-mode .view-switcher-bar {
   color: #38bdf8;
 }
 
+.chat-draft-meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
 .chat-field {
   display: flex;
   flex-direction: column;

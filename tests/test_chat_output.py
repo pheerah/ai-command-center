@@ -98,7 +98,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_defaults(self):
         settings = chat_settings(self.center())
-        self.assertEqual(settings, {'providers': ['codex', 'claude'], 'timeout_seconds': 90, 'history_turns': 10,
+        self.assertEqual(settings, {'providers': ['claude'], 'timeout_seconds': 90, 'history_turns': 10,
                                     'max_message_chars': 4000, 'context_bytes': 65536, 'adapter': 'live'})
 
     def test_override_and_ignore_bad_values(self):
@@ -108,9 +108,9 @@ class SettingsTests(unittest.TestCase):
     def test_unknown_providers_are_dropped(self):
         self.assertEqual(chat_settings(self.center({'providers': ['claude', 'bogus']}))['providers'], ['claude'])
 
-    def test_repo_config_enables_codex_and_claude_only(self):
+    def test_repo_config_enables_claude_only_until_codex_isolation_is_proven(self):
         config = json.loads((_Path(center_chat.__file__).resolve().parents[1] / 'center.config.json').read_text(encoding='utf-8'))
-        self.assertEqual(config['chat']['providers'], ['codex', 'claude'])
+        self.assertEqual(config['chat']['providers'], ['claude'])
         self.assertEqual(config['chat']['adapter'], 'live')
 
 

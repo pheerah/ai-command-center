@@ -4,6 +4,7 @@ import subprocess
 import sys as _sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path as _Path
 
@@ -176,6 +177,65 @@ class TurnTests(unittest.TestCase):
             row = self.say('hello', FakeRunner(outcome))
             for private in (str(self.center.store.state), str(self.repo), self.tmp.name):
                 self.assertNotIn(private, row['body'])
+
+    def test_one_turn_shares_a_single_time_budget_across_providers_and_retries(self):
+        self.center.config['chat'] = {'providers': ['codex', 'claude'], 'timeout_seconds': 3, 'adapter': 'live'}
+        seen = []
+
+        def slow(provider, prompt, timeout, workdir):
+            seen.append(timeout)
+            time.sleep(1.0)
+            raise ProviderFailure('unavailable')
+
+        row = self.say('hello', slow)
+        self.assertEqual(row['kind'], 'error')
+        self.assertEqual(len(seen), 2)
+        self.assertLessEqual(seen[0], 3)
+        self.assertLess(seen[1], 2.2)
+
+    def test_an_exhausted_budget_stops_the_turn_with_a_timeout_error(self):
+        self.center.config['chat'] = {'providers': ['codex', 'claude'], 'timeout_seconds': 1, 'adapter': 'live'}
+        seen = []
+
+        def slow(provider, prompt, timeout, workdir):
+            seen.append(provider)
+            time.sleep(1.3)
+            raise ProviderFailure('unavailable')
+
+        row = self.say('hello', slow)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(row['kind'], 'error')
+        self.assertIn('หมดเวลา', row['body'])
+
+    def test_a_crash_in_the_provider_call_still_stores_an_error_row(self):
+        def boom(*args):
+            raise RuntimeError('provider exploded in /home/me/x')
+
+        row = self.say('hello', boom, turn_id='turn-boom0001')
+        self.assertEqual(row['kind'], 'error')
+        self.assertNotIn('exploded', row['body'])
+        again = self.say('hello', FakeRunner(REPLY), turn_id='turn-boom0001')
+        self.assertEqual(again['id'], row['id'])
+
+    def test_a_stale_user_row_without_an_answer_is_taken_over(self):
+        chat_store.add_message(self.center.store, 'alpha', 'turn-stale001', 'user', 'text', 'hello')
+        with self.center.store.connection(write=True) as con:
+            con.execute("UPDATE chat_messages SET created_at='2020-01-01T00:00:00.000+00:00'")
+        runner = FakeRunner(REPLY)
+        row = self.say('hello', runner, turn_id='turn-stale001')
+        self.assertEqual(row['kind'], 'reply')
+        self.assertEqual(len(runner.calls), 1)
+        users = [r for r in chat_store.history(self.center.store, 'alpha') if r['turn_id'] == 'turn-stale001' and r['role'] == 'user']
+        self.assertEqual(len(users), 1)
+
+    def test_a_fresh_user_row_without_an_answer_is_busy_not_taken_over(self):
+        self.center.config['chat'] = {'providers': ['codex'], 'timeout_seconds': 1, 'adapter': 'live'}
+        chat_store.add_message(self.center.store, 'alpha', 'turn-fresh001', 'user', 'text', 'hello')
+        runner = FakeRunner(REPLY)
+        row = self.say('hello', runner, turn_id='turn-fresh001')
+        self.assertEqual(row['kind'], 'error')
+        self.assertIn('กำลังถูกประมวลผล', row['body'])
+        self.assertEqual(runner.calls, [])
 
     def test_mock_adapter_answers_without_a_provider(self):
         self.center.config['chat'] = {'providers': ['codex'], 'adapter': 'mock'}

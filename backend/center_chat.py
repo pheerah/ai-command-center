@@ -23,11 +23,13 @@ from center_process import terminate_tree, worker_env
 from center_worker import cli_command
 from center_workspace import EXCLUDED, in_scope, safe_relative, sensitive
 
-DEFAULTS = {'providers': ['codex', 'claude'], 'timeout_seconds': 90, 'history_turns': 10,
+DEFAULTS = {'providers': ['claude'], 'timeout_seconds': 90, 'history_turns': 10,
             'max_message_chars': 4000, 'context_bytes': 65536, 'adapter': 'live'}
 TASK_ID = re.compile(r'^[a-f0-9]{12}$')
 PROVIDER_NAME = re.compile(r'^[a-z0-9_-]{1,20}$')
 MAX_REPLY_CHARS = 8000
+MAX_TURN_SECONDS = 95  # server.js waits 100 s for the Center
+STALE_TURN_MARGIN = 30
 
 
 class ChatOutputError(ValueError):
@@ -42,7 +44,7 @@ def chat_settings(center):
     for key in ('timeout_seconds', 'history_turns', 'max_message_chars', 'context_bytes'):
         value = configured.get(key)
         if type(value) is int and value > 0:
-            settings[key] = value
+            settings[key] = min(value, MAX_TURN_SECONDS) if key == 'timeout_seconds' else value
     providers = configured.get('providers')
     if isinstance(providers, list):
         settings['providers'] = [p for p in providers if isinstance(p, str) and p in center.config.get('providers', {})]
@@ -411,14 +413,20 @@ def _wait_for_answer(store, project_id, turn_id, seconds):
     return None
 
 
-def _ask(center, project_id, prompt, scope, providers, settings, runner):
-    """Try providers in order; one retry per provider for an unusable answer. Returns (payload, provider) or (reason, None)."""
+def _ask(prompt, scope, providers, deadline, settings, runner):
+    """Try providers in order inside one shared time budget; one retry per provider for an unusable answer.
+
+    Returns (payload, provider) or (reason, None).
+    """
     reason = 'no_provider'
     for provider in providers:
         for attempt in (1, 2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return 'timeout', None
             with tempfile.TemporaryDirectory(prefix='center-chat-') as workdir:
                 try:
-                    raw = runner(provider, prompt if attempt == 1 else prompt + RETRY_REMINDER, settings['timeout_seconds'], Path(workdir))
+                    raw = runner(provider, prompt if attempt == 1 else prompt + RETRY_REMINDER, min(settings['timeout_seconds'], remaining), Path(workdir))
                 except ProviderFailure as failure:
                     reason = failure.reason
                     break  # next provider
@@ -429,6 +437,23 @@ def _ask(center, project_id, prompt, scope, providers, settings, runner):
         else:
             return reason, None  # unusable twice from the same provider: stop instead of spending other providers' quota
     return reason, None
+
+
+def _claim_turn(store, project_id, turn_id, message, settings):
+    """Store the user's row for this turn. Returns (True, None) when this call owns the turn, else (False, row_or_None).
+
+    A second call with the same turn id waits for the first one's answer. A user row that never got an answer (the process was
+    killed mid-turn) is dropped once it is older than any turn can last, so the same id can be answered again.
+    """
+    for attempt in (1, 2):
+        try:
+            chat_store.add_message(store, project_id, turn_id, 'user', 'text', message)
+            return True, None
+        except sqlite3.IntegrityError:
+            if attempt == 1 and chat_store.drop_unanswered_turn(store, project_id, turn_id, settings['timeout_seconds'] + STALE_TURN_MARGIN):
+                continue
+            return False, _wait_for_answer(store, project_id, turn_id, settings['timeout_seconds'] + 2)
+    return False, None
 
 
 def run_turn(center, project_id, message, turn_id, runner=None):
@@ -448,11 +473,9 @@ def run_turn(center, project_id, message, turn_id, runner=None):
     done = chat_store.find_turn(store, project_id, turn_id, 'secretary')
     if done:
         return done
-    try:
-        chat_store.add_message(store, project_id, turn_id, 'user', 'text', message)
-    except sqlite3.IntegrityError:  # the same turn is already being answered (double click, retry): wait for that answer
-        row = _wait_for_answer(store, project_id, turn_id, settings['timeout_seconds'] * 3)
-        return row or _error('busy')
+    owned, other = _claim_turn(store, project_id, turn_id, message, settings)
+    if not owned:
+        return other or _error('busy')
     if settings['adapter'] == 'mock':
         payload, provider = mock_answer(message, scope), 'mock'
     else:
@@ -460,8 +483,9 @@ def run_turn(center, project_id, message, turn_id, runner=None):
             history = [r for r in chat_store.history(store, project_id, settings['history_turns'] * 2 + 2) if r['turn_id'] != turn_id]
             context = build_context(center, project_id, message, history)
             providers = chat_provider_order(center)
-            payload, provider = _ask(center, project_id, context['prompt'], scope, providers, settings, runner or RUNNER) if providers else ('no_provider', None)
-        except (ValueError, OSError, sqlite3.Error):
+            deadline = time.monotonic() + settings['timeout_seconds']
+            payload, provider = _ask(context['prompt'], scope, providers, deadline, settings, runner or RUNNER) if providers else ('no_provider', None)
+        except Exception:  # whatever happens, the turn must end with an answer row so a retry is never stuck behind an orphan
             payload, provider = 'unavailable', None
     if provider is None:
         kind, body = 'error', ERRORS[payload]

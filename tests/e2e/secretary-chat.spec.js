@@ -51,6 +51,7 @@ test('chat: an instruction shows an editable draft and nothing is created until 
   const draft = await sayForDraft(page, 'เพิ่มปุ่มรีเฟรช');
   await expect(draft).toBeVisible();
   await expect(draft.locator('[name=title]')).toHaveValue('งานจำลองจากแชท');
+  await expect(draft).toContainText('provider: auto');
   expect(await taskCount(page, 'ชื่อที่แก้เอง')).toBe(before);
   await draft.locator('[name=title]').fill('ชื่อที่แก้เอง');
   await draft.getByRole('button', { name: 'ส่งงาน' }).click();

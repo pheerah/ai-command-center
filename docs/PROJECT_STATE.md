@@ -105,7 +105,7 @@
 
 - ทำครบตาม spec A: `backend/center_chat.py`, `backend/center_chat_store.py`, op `chat` / `chat_history` / `chat_confirm` ใน `center_api.py`, route `/api/chat*` ใน `server.js` (เฉพาะ dashboard, token ของโปรเจกต์เข้าไม่ถึง), `web/js/chat.js`
 - ทดสอบแล้ว: เทสต์ Python `test_chat_*.py` (provider จำลอง), vitest, Playwright `secretary-chat.spec.js` ด้วย mock adapter
-- **ยังไม่ได้ทดสอบกับ provider จริง** ดูผล probe ในหัวข้อถัดไป (ถ้าไม่มี แปลว่ายังไม่ได้รัน)
+- **ยังไม่ได้ทดสอบกับ provider จริง** (ยังไม่ได้รัน probe) ค่าเริ่มต้นจึงเปิดเฉพาะ Claude แบบไม่มี tool; ต้อง probe ก่อนเปิด Codex/Google
 
 ## Antigravity / ขอบเขตที่ยังไม่อ้างว่าพิสูจน์แล้ว
 
