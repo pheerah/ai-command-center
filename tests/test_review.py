@@ -196,6 +196,7 @@ class ReviewTests(ReviewFixture, unittest.TestCase):
     def test_apply_refuses_to_overwrite_a_different_file_and_changes_nothing(self):
         task = self.ready_task()
         self.center.approve(task['id'], interactive=False)
+        (self.a / 'src').mkdir(exist_ok=True)
         mine = self.a / 'src' / 'center_mock.txt'
         mine.write_text('my own unsaved work\n', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'Refusing to overwrite src/center_mock.txt'):
@@ -210,19 +211,21 @@ class ReviewTests(ReviewFixture, unittest.TestCase):
     def test_apply_accepts_a_file_that_is_already_identical(self):
         task = self.ready_task()
         self.center.approve(task['id'], interactive=False)
+        (self.a / 'src').mkdir(exist_ok=True)
         (self.a / 'src' / 'center_mock.txt').write_text('Center mock implementation\n', encoding='utf-8')
         self.assertEqual(self.center.apply_approved(task['id'])['status'], 'applied')
 
     def test_apply_refuses_when_a_folder_is_in_the_way(self):
         task = self.ready_task()
         self.center.approve(task['id'], interactive=False)
-        (self.a / 'src' / 'center_mock.txt').mkdir()
+        (self.a / 'src' / 'center_mock.txt').mkdir(parents=True)
         with self.assertRaisesRegex(ValueError, 'Refusing to overwrite'):
             self.center.apply_approved(task['id'])
         self.assertTrue((self.a / 'src' / 'center_mock.txt').is_dir())
 
     def test_the_web_approval_path_reports_a_refusal_and_leaves_an_approved_task_to_apply_later(self):
         task = self.ready_task()
+        (self.a / 'src').mkdir(exist_ok=True)
         (self.a / 'src' / 'center_mock.txt').write_text('mine\n', encoding='utf-8')
         self.center.approve(task['id'], interactive=False)
         with self.assertRaisesRegex(ValueError, 'Refusing to overwrite'):
